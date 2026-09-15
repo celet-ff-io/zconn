@@ -10,4 +10,8 @@ readme.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[[bin]]
+name = "zconned"
+path = "src/bin/main.rs"
+
 [dependencies]
