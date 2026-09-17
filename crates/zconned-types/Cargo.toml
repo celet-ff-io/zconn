@@ -1,0 +1,17 @@
+[package]
+name = "zconned-types"
+version = "0.1.0-alpha"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+pbjson = "0.9.0"
+prost = "0.14.4"
+serde = { version = "1.0.229", features = ["derive"] }

@@ -15,3 +15,14 @@ name = "zconned"
 path = "src/bin/main.rs"
 
 [dependencies]
+zconned-types.workspace = true
+
+thiserror.workspace = true
+tokio = { version = "1.53.1", features = [
+  "io-std",
+  "io-util",
+  "macros",
+  "rt",
+  "time",
+] }
+bytes = "1.12.1"
