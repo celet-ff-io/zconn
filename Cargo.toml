@@ -16,3 +16,5 @@ rust-version = "1.98"
 zconned-types = { path = "crates/zconned-types" }
 
 thiserror = "2.0.20"
+tap = "1.0.1"
+miette = { version = "7.6.0", features = ["fancy"] }

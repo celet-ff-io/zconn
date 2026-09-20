@@ -1,0 +1,86 @@
+use bytes::BytesMut;
+use prost::Message;
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::time::{Duration, sleep};
+
+use crate::frame::{Framer, write_frame};
+use crate::{ZconnedError, ZconnedResult};
+use zconned_types::{Handshake, IncomingFrame, OutgoingFrame, PROTOCOL_VERSION};
+
+const ECHO_DELAY: Duration = Duration::from_secs(1);
+const OWN_MAX_FRAME_LENGTH: usize = 64 * 1024 * 1024;
+
+enum State {
+    BeforeHandshake,
+    Running,
+}
+
+pub async fn run<R, W>(stdin: &mut BufReader<R>, stdout: &mut W) -> ZconnedResult<()>
+where
+    R: AsyncReadExt + Unpin,
+    W: AsyncWriteExt + Unpin,
+{
+    let mut state = State::BeforeHandshake;
+    let mut framer = Framer::builder()
+        .max_payload_length(OWN_MAX_FRAME_LENGTH)
+        .build();
+
+    loop {
+        let mut chunk = BytesMut::new();
+        if stdin.read_buf(&mut chunk).await? == 0 {
+            // EOF
+            return if framer.is_idle() {
+                Ok(()) // clean EOF: graceful close, exit 0
+            } else {
+                Err(ZconnedError::Protocol("Truncated frame at EOF".into()))
+            };
+        }
+
+        let view = &chunk[..];
+        loop {
+            match framer.feed(view)? {
+                None => break,
+                Some(payload) => {
+                    match state {
+                        State::BeforeHandshake => {
+                            match Handshake::decode(payload) {
+                                Ok(Handshake {
+                                    version,
+                                    max_payload_length,
+                                }) => {
+                                    if version != PROTOCOL_VERSION {
+                                        return Ok(()); // version mismatch: silent close
+                                    }
+                                    // Conservative adoption: never exceed the peer's cap.
+                                    let theirs = max_payload_length as usize;
+                                    let adopted = if theirs == 0 || theirs >= OWN_MAX_FRAME_LENGTH {
+                                        OWN_MAX_FRAME_LENGTH
+                                    } else {
+                                        theirs
+                                    };
+                                    framer.set_max_payload_length(adopted);
+                                    write_frame(
+                                        stdout,
+                                        Handshake {
+                                            version: PROTOCOL_VERSION,
+                                            max_payload_length: OWN_MAX_FRAME_LENGTH as u32,
+                                        },
+                                    )
+                                    .await?;
+                                    state = State::Running;
+                                }
+                                Err(_) => return Ok(()), // first frame != handshake: close
+                            }
+                        }
+                        State::Running => {
+                            if let Ok(msg) = IncomingFrame::decode(payload) {
+                                sleep(ECHO_DELAY).await; // the 1s echo contract
+                                write_frame(stdout, OutgoingFrame { text: msg.text }).await?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
