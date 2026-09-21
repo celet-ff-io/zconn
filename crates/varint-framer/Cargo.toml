@@ -1,0 +1,15 @@
+[package]
+name = "varint-framer"
+version = "0.1.0-alpha"
+description = "Incremental push state machine for framing varint (LEB128) length-prefixed streams, protobuf-compatible"
+keywords = ["varint", "framing", "state-machine", "protobuf", "streaming"]
+categories = ["network-programming", "parsing"]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
