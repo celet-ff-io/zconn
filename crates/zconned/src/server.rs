@@ -36,9 +36,9 @@ where
             };
         }
 
-        let view = &chunk[..];
+        let mut view = &chunk[..];
         loop {
-            match framer.feed(view)? {
+            match framer.feed(&mut view)? {
                 None => break,
                 Some(payload) => {
                     match state {
