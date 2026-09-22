@@ -13,13 +13,12 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-thiserror.workspace = true
 tap.workspace = true
-miette.workspace = true
-prost = "0.14.4"
-bytes = "1.12.1"
-typed-builder = "0.23.2"
-getset = "0.1.7"
+thiserror.workspace = true
+typed-builder.workspace = true
+getset.workspace = true
+bytes.workspace = true
+prost.workspace = true
 
 [dev-dependencies]
-pretty_assertions = "1.4.1"
+pretty_assertions.workspace = true

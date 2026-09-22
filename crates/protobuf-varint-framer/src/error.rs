@@ -2,9 +2,6 @@ use std::fmt::{Display, Formatter};
 
 #[derive(Debug, thiserror::Error)]
 pub enum FrameError {
-    #[error("length delimiter {actual} exceeds maximum usize value")]
-    LengthDelimiterExceedsUsize { actual: u64 },
-
     /// Payload length exceeds the maximum allowed value.
     ///
     /// Big payload may raise this error unexpectedly,
@@ -18,9 +15,6 @@ pub enum FrameError {
         actual: LengthDelimiterExcess,
         max: u64,
     },
-
-    #[error("input ended with a partial frame")]
-    TruncatedFrame,
 
     #[error("prost decode length delimiter error: {0}")]
     ProstDecodeLengthDelimiterError(#[from] prost::DecodeError),

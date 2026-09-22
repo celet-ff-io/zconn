@@ -3,9 +3,11 @@ use prost::Message;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::time::{Duration, sleep};
 
-use crate::frame::{Framer, write_frame};
-use crate::{ZconnedError, ZconnedResult};
+use protobuf_varint_framer::Framer;
 use zconned_types::{Handshake, IncomingFrame, OutgoingFrame, PROTOCOL_VERSION};
+
+use crate::ZconnedResult;
+use crate::error::ProtocolError;
 
 const ECHO_DELAY: Duration = Duration::from_secs(1);
 const OWN_MAX_FRAME_LENGTH: usize = 64 * 1024 * 1024;
@@ -29,16 +31,12 @@ where
         let mut chunk = BytesMut::new();
         if stdin.read_buf(&mut chunk).await? == 0 {
             // EOF
-            return if framer.is_idle() {
-                Ok(()) // clean EOF: graceful close, exit 0
-            } else {
-                Err(ZconnedError::Protocol("Truncated frame at EOF".into()))
-            };
+            return framer.is_idle().ok_or(ProtocolError::TruncatedFrame.into());
         }
 
         let mut view = &chunk[..];
         loop {
-            match framer.feed(&mut view)? {
+            match framer.feed(&mut view).map_err(ProtocolError::from)? {
                 None => break,
                 Some(payload) => {
                     match state {
@@ -83,4 +81,14 @@ where
             }
         }
     }
+}
+
+async fn write_frame<W: AsyncWriteExt + Unpin, M: prost::Message + Unpin>(
+    stdout: &mut W,
+    msg: M,
+) -> ZconnedResult<()> {
+    let bytes = msg.encode_length_delimited_to_vec();
+    stdout.write_all(&bytes).await?;
+    stdout.flush().await?;
+    Ok(())
 }
