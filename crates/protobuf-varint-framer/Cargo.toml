@@ -1,5 +1,5 @@
 [package]
-name = "varint-framer"
+name = "protobuf-varint-framer"
 version = "0.1.0-alpha"
 description = "Incremental push state machine for framing varint (LEB128) length-prefixed streams, protobuf-compatible"
 keywords = ["varint", "framing", "state-machine", "protobuf", "streaming"]
@@ -13,3 +13,13 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+thiserror.workspace = true
+tap.workspace = true
+miette.workspace = true
+prost = "0.14.4"
+bytes = "1.12.1"
+typed-builder = "0.23.2"
+getset = "0.1.7"
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"
