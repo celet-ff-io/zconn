@@ -17,9 +17,14 @@ path = "src/bin/zconned/main.rs"
 [dependencies]
 zconned-types.workspace = true
 
-thiserror.workspace = true
 tap.workspace = true
+thiserror.workspace = true
 miette.workspace = true
+pretty_assertions.workspace = true
+typed-builder.workspace = true
+getset.workspace = true
+bytes.workspace = true
+prost.workspace = true
 tokio = { version = "1.53.1", features = [
   "io-std",
   "io-util",
@@ -27,8 +32,3 @@ tokio = { version = "1.53.1", features = [
   "rt",
   "time",
 ] }
-bytes = "1.12.1"
-prost = "0.14.4"
-typed-builder = "0.23.2"
-getset = "0.1.7"
-pretty_assertions = "1.4.1"

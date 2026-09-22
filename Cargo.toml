@@ -13,8 +13,14 @@ repository = "https://github.com/celet-ff-io/zconn/"
 rust-version = "1.98"
 
 [workspace.dependencies]
+zconned = { path = "crates/zconned" }
 zconned-types = { path = "crates/zconned-types" }
 
-thiserror = "2.0.20"
 tap = "1.0.1"
+thiserror = "2.0.20"
 miette = { version = "7.6.0", features = ["fancy"] }
+pretty_assertions = "1.4.1"
+typed-builder = "0.23.2"
+getset = "0.1.7"
+bytes = "1.12.1"
+prost = "0.14.4"
