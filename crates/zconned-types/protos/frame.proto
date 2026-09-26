@@ -4,7 +4,6 @@ package zconn.zconned.frame;
 
 message Handshake {
   uint32 version = 1;
-  uint32 max_payload_length = 2;
 }
 
 message IncomingFrame {

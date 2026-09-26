@@ -10,7 +10,6 @@ use crate::ZconnedResult;
 use crate::error::ProtocolError;
 
 const ECHO_DELAY: Duration = Duration::from_secs(1);
-const OWN_MAX_FRAME_LENGTH: usize = 64 * 1024 * 1024;
 
 enum State {
     BeforeHandshake,
@@ -23,9 +22,7 @@ where
     W: AsyncWriteExt + Unpin,
 {
     let mut state = State::BeforeHandshake;
-    let mut framer = Framer::builder()
-        .max_payload_length(OWN_MAX_FRAME_LENGTH)
-        .build();
+    let mut framer = Framer::builder().max_payload_length(usize::MAX).build();
 
     loop {
         let mut chunk = BytesMut::new();
@@ -42,26 +39,14 @@ where
                     match state {
                         State::BeforeHandshake => {
                             match Handshake::decode(payload) {
-                                Ok(Handshake {
-                                    version,
-                                    max_payload_length,
-                                }) => {
+                                Ok(Handshake { version }) => {
                                     if version != PROTOCOL_VERSION {
                                         return Ok(()); // version mismatch: silent close
                                     }
-                                    // Conservative adoption: never exceed the peer's cap.
-                                    let theirs = max_payload_length as usize;
-                                    let adopted = if theirs == 0 || theirs >= OWN_MAX_FRAME_LENGTH {
-                                        OWN_MAX_FRAME_LENGTH
-                                    } else {
-                                        theirs
-                                    };
-                                    framer.set_max_payload_length(adopted);
                                     write_frame(
                                         stdout,
                                         Handshake {
                                             version: PROTOCOL_VERSION,
-                                            max_payload_length: OWN_MAX_FRAME_LENGTH as u32,
                                         },
                                     )
                                     .await?;
