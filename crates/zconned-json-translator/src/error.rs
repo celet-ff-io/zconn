@@ -15,25 +15,25 @@ pub mod core {
     #[derive(Debug, thiserror::Error)]
     pub enum Error {
         #[error("failed to spawn process")]
-        ProcessSpawn(#[source] std::io::Error),
+        ProcessSpawnFailed(#[source] std::io::Error),
 
         #[error("pipe {name} has been already consumed")]
         ProcessStdioPipeConsumed { name: String },
 
         #[error("IO error when trying to access pipe")]
-        PipeIO(#[source] std::io::Error),
+        PipeIOError(#[source] std::io::Error),
 
-        #[error("error occurs while framing: {0}")]
-        FrameDeframing(#[from] protobuf_varint_deframer::Error),
+        #[error("failed to deframe frame: {0}")]
+        FrameDeframeFailed(#[from] protobuf_varint_deframer::Error),
 
         #[error("EOF truncates frame")]
         TruncatedFrame,
 
         #[error("EOF when trying to read a necessary frame")]
-        EOF,
+        UnexpectedEOF,
 
         #[error("failed to decode frame: {0}")]
-        FrameDecode(#[from] prost::DecodeError),
+        FrameDecodeFailed(#[from] prost::DecodeError),
 
         #[error("protocol version mismatch: translator version {this}, core version {received}")]
         VersionMismatch { this: u32, received: u32 },
@@ -46,10 +46,10 @@ pub mod client {
     #[derive(Debug, thiserror::Error)]
     pub enum Error {
         #[error("EOF when trying to read a necessary frame")]
-        EOF,
+        UnexpectedEOF,
 
-        #[error("while reading or writing JSONL: {0}")]
-        IO(#[from] std::io::Error),
+        #[error("error when reading or writing JSONL: {0}")]
+        IOError(#[from] std::io::Error),
 
         #[error("protocol version mismatch: translator version {this}, client version {received}")]
         VersionMismatch { this: u32, received: u32 },

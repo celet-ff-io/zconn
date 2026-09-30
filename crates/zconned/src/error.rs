@@ -1,5 +1,3 @@
-use protobuf_varint_deframer::Error;
-
 #[derive(Debug, thiserror::Error)]
 pub enum ZconnedError {
     #[error("IO error: {0}")]
@@ -14,11 +12,11 @@ pub enum ProtocolError {
     #[error("protocol version mismatch: expected {expected}, received {received}")]
     VersionMismatch { expected: u32, received: u32 },
 
-    #[error("truncated frame at EOF")]
+    #[error("EOF truncates frame")]
     TruncatedFrame,
 
-    #[error("frame error: {0}")]
-    Frame(#[from] Error),
+    #[error("failed to deframe frame: {0}")]
+    FrameDeframeFailed(#[from] protobuf_varint_deframer::Error),
 }
 
 pub type ZconnedResult<T> = std::result::Result<T, ZconnedError>;

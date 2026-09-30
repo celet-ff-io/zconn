@@ -76,7 +76,7 @@ fn spawn_core(core: &str) -> error::core::Result<Child> {
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
-        .map_err(CoreError::ProcessSpawn)
+        .map_err(CoreError::ProcessSpawnFailed)
 }
 
 fn take_stdio<T>(mut opt: Option<T>, name: &str) -> Result<T> {
@@ -118,7 +118,7 @@ mod core {
 
         #[inline]
         pub async fn read_exact_frame<T: Message + Default>(&mut self) -> Result<T> {
-            self.read_frame().await?.ok_or(Error::EOF)
+            self.read_frame().await?.ok_or(Error::UnexpectedEOF)
         }
 
         /// Read a frame from core.
@@ -129,7 +129,7 @@ mod core {
                     .reader
                     .read_buf(&mut chunk)
                     .await
-                    .map_err(Error::PipeIO)?
+                    .map_err(Error::PipeIOError)?
                     == 0
                 {
                     // EOF
@@ -142,7 +142,7 @@ mod core {
                 if let Some(payload) = self
                     .framer
                     .feed(&mut chunk)
-                    .map_err(Error::FrameDeframing)?
+                    .map_err(Error::FrameDeframeFailed)?
                 {
                     return payload.pipe(T::decode)?.pipe(Some).pipe(Ok);
                 }
@@ -159,7 +159,7 @@ mod core {
                     Ok(())
                 })
                 .await
-                .map_err(Error::PipeIO)?
+                .map_err(Error::PipeIOError)?
                 .pipe(Ok)
         }
     }
@@ -189,7 +189,7 @@ mod client {
 
         #[inline]
         pub async fn read_exact_frame<T: DeserializeOwned>(&mut self) -> Result<T> {
-            self.read_frame().await?.ok_or(Error::EOF)
+            self.read_frame().await?.ok_or(Error::UnexpectedEOF)
         }
 
         pub async fn read_frame<T: DeserializeOwned>(&mut self) -> Result<Option<T>> {
