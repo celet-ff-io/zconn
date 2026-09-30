@@ -2,7 +2,7 @@ use std::process::Stdio;
 
 use bytes::BytesMut;
 use prost::Message;
-use protobuf_varint_framer::Framer;
+use protobuf_varint_deframer::Framer;
 use serde_jsonlines::{AsyncJsonLinesReader, AsyncJsonLinesWriter};
 use tap::Pipe as _;
 use tokio::{

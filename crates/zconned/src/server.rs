@@ -3,7 +3,7 @@ use prost::Message;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::time::{Duration, sleep};
 
-use protobuf_varint_framer::Framer;
+use protobuf_varint_deframer::Framer;
 use zconned_types::{Handshake, IncomingFrame, OutgoingFrame, PROTOCOL_VERSION};
 
 use crate::ZconnedResult;

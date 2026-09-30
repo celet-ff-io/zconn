@@ -1,4 +1,4 @@
-use protobuf_varint_framer::FrameError;
+use protobuf_varint_deframer::FrameError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ZconnedError {

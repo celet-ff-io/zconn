@@ -10,7 +10,7 @@ pub enum Error {
 }
 
 pub mod core {
-    use protobuf_varint_framer::FrameError;
+    use protobuf_varint_deframer::FrameError;
 
     pub type Result<T> = std::result::Result<T, Error>;
 

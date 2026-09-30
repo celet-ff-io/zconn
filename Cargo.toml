@@ -13,7 +13,7 @@ repository = "https://github.com/celet-ff-io/zconn/"
 rust-version = "1.98"
 
 [workspace.dependencies]
-protobuf-varint-framer = { path = "crates/protobuf-varint-framer" }
+protobuf-varint-deframer = { path = "crates/protobuf-varint-deframer" }
 zconned-types = { path = "crates/zconned-types" }
 
 tap = "1.0.1"

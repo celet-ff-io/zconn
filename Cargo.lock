@@ -582,7 +582,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "protobuf-varint-framer"
+name = "protobuf-varint-deframer"
 version = "0.1.0-alpha"
 dependencies = [
  "bytes",
@@ -988,7 +988,7 @@ dependencies = [
  "miette",
  "pretty_assertions",
  "prost",
- "protobuf-varint-framer",
+ "protobuf-varint-deframer",
  "tap",
  "thiserror",
  "tokio",
@@ -1004,7 +1004,7 @@ dependencies = [
  "miette",
  "pretty_assertions",
  "prost",
- "protobuf-varint-framer",
+ "protobuf-varint-deframer",
  "serde",
  "serde-jsonlines",
  "serde_json",

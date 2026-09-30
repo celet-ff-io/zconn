@@ -1,5 +1,5 @@
 [package]
-name = "protobuf-varint-framer"
+name = "protobuf-varint-deframer"
 version = "0.1.0-alpha"
 description = "Incremental push state machine for framing varint (LEB128) length-prefixed streams, protobuf-compatible"
 keywords = ["varint", "framing", "state-machine", "protobuf", "streaming"]

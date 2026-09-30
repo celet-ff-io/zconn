@@ -1,5 +1,5 @@
+mod deframe;
 mod error;
-mod frame;
 
+pub use deframe::Framer;
 pub use error::{FrameError, FrameResult, LengthDelimiterExcess};
-pub use frame::Framer;

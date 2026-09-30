@@ -15,7 +15,7 @@ name = "zconned-json-translator"
 path = "src/bin/zconned-json-translator/main.rs"
 
 [dependencies]
-protobuf-varint-framer.workspace = true
+protobuf-varint-deframer.workspace = true
 zconned-types.workspace = true
 
 tap.workspace = true
