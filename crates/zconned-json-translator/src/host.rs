@@ -2,7 +2,7 @@ use std::process::Stdio;
 
 use bytes::BytesMut;
 use prost::Message;
-use protobuf_varint_deframer::Framer;
+use protobuf_varint_deframer::Deframer;
 use serde_jsonlines::{AsyncJsonLinesReader, AsyncJsonLinesWriter};
 use tap::Pipe as _;
 use tokio::{
@@ -88,6 +88,7 @@ fn take_stdio<T>(mut opt: Option<T>, name: &str) -> Result<T> {
 }
 
 mod core {
+    use protobuf_varint_deframer::UNLIMITED_MAX_PAYLOAD_LENGTH;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
     use super::*;
@@ -95,7 +96,7 @@ mod core {
     use crate::error::core::{Error, Result};
 
     pub struct Link<R, W> {
-        framer: Framer,
+        framer: Deframer,
         reader: R,
         writer: W,
     }
@@ -107,7 +108,9 @@ mod core {
     {
         pub fn new(reader: R, writer: W) -> Self {
             Self {
-                framer: Framer::builder().max_payload_length(usize::MAX).build(),
+                framer: Deframer::builder()
+                    .max_payload_length(UNLIMITED_MAX_PAYLOAD_LENGTH)
+                    .build(),
                 reader,
                 writer,
             }
@@ -136,7 +139,11 @@ mod core {
                         Ok(None)
                     };
                 }
-                if let Some(payload) = self.framer.feed(&mut chunk).map_err(Error::FrameFraming)? {
+                if let Some(payload) = self
+                    .framer
+                    .feed(&mut chunk)
+                    .map_err(Error::FrameDeframing)?
+                {
                     return payload.pipe(T::decode)?.pipe(Some).pipe(Ok);
                 }
             }

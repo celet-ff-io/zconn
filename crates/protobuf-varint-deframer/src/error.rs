@@ -1,7 +1,7 @@
-use std::fmt::{Display, Formatter};
+use core::fmt::{Display, Formatter};
 
 #[derive(Debug, thiserror::Error)]
-pub enum FrameError {
+pub enum Error {
     /// Payload length exceeds the maximum allowed value.
     ///
     /// Big payload may raise this error unexpectedly,
@@ -41,4 +41,4 @@ impl Display for LengthDelimiterExcess {
     }
 }
 
-pub type FrameResult<T> = Result<T, FrameError>;
+pub type Result<T> = core::result::Result<T, Error>;

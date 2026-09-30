@@ -3,7 +3,7 @@ use prost::Message;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::time::{Duration, sleep};
 
-use protobuf_varint_deframer::Framer;
+use protobuf_varint_deframer::{Deframer, UNLIMITED_MAX_PAYLOAD_LENGTH};
 use zconned_types::{Handshake, IncomingFrame, OutgoingFrame, PROTOCOL_VERSION};
 
 use crate::ZconnedResult;
@@ -22,7 +22,9 @@ where
     W: AsyncWriteExt + Unpin,
 {
     let mut state = State::BeforeHandshake;
-    let mut framer = Framer::builder().max_payload_length(usize::MAX).build();
+    let mut framer = Deframer::builder()
+        .max_payload_length(UNLIMITED_MAX_PAYLOAD_LENGTH)
+        .build();
 
     loop {
         let mut chunk = BytesMut::new();

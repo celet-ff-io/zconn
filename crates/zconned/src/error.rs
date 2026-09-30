@@ -1,4 +1,4 @@
-use protobuf_varint_deframer::FrameError;
+use protobuf_varint_deframer::Error;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ZconnedError {
@@ -18,7 +18,7 @@ pub enum ProtocolError {
     TruncatedFrame,
 
     #[error("frame error: {0}")]
-    Frame(#[from] FrameError),
+    Frame(#[from] Error),
 }
 
 pub type ZconnedResult<T> = std::result::Result<T, ZconnedError>;

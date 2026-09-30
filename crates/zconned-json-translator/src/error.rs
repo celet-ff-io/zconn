@@ -10,8 +10,6 @@ pub enum Error {
 }
 
 pub mod core {
-    use protobuf_varint_deframer::FrameError;
-
     pub type Result<T> = std::result::Result<T, Error>;
 
     #[derive(Debug, thiserror::Error)]
@@ -26,7 +24,7 @@ pub mod core {
         PipeIO(#[source] std::io::Error),
 
         #[error("error occurs while framing: {0}")]
-        FrameFraming(#[from] FrameError),
+        FrameDeframing(#[from] protobuf_varint_deframer::Error),
 
         #[error("EOF truncates frame")]
         TruncatedFrame,
