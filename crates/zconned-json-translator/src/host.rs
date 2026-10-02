@@ -134,9 +134,9 @@ mod core {
                 {
                     // EOF
                     return if self.framer.is_idle() {
-                        Error::TruncatedFrame.pipe(Err)
-                    } else {
                         Ok(None)
+                    } else {
+                        Error::TruncatedFrame.pipe(Err)
                     };
                 }
                 if let Some(payload) = self
