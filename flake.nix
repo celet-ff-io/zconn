@@ -35,6 +35,9 @@
               rustfmt
               clippy
             ];
+            shellHook = ''
+              export FPATH="${pkgs.cargo}/share/zsh/site-functions:$FPATH"
+            '';
           };
         }
       );
