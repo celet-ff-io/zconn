@@ -236,7 +236,10 @@ pub mod jsonl {
     {
         type Error = Error;
         async fn write_frame(&mut self, frame: &T) -> Result<()> {
-            self.writer.write(frame).await.map_err(Error::from)
+            let writer = &mut self.writer;
+            writer.write(frame).await?;
+            writer.flush().await?;
+            Ok(())
         }
     }
 
