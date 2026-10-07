@@ -48,6 +48,7 @@ pub mod protobuf {
 
     pub struct CodecStruct<'a, R, W> {
         deframer: &'a mut Deframer,
+        buf: &'a mut BytesMut,
         reader: R,
         writer: W,
     }
@@ -60,6 +61,7 @@ pub mod protobuf {
         fn from(link: &'a mut LinkStruct<R, W>) -> Self {
             Self {
                 deframer: &mut link.deframer,
+                buf: &mut link.buf,
                 reader: &mut link.reader,
                 writer: &mut link.writer,
             }
@@ -75,16 +77,15 @@ pub mod protobuf {
 
         async fn read_frame(&mut self) -> Result<Option<T>> {
             loop {
-                let mut chunk = BytesMut::new();
-                if self.reader.read_buf(&mut chunk).await? == 0 {
+                if let Some(record) = self.deframer.feed(&mut self.buf)? {
+                    return T::decode(record).map(Some)?.pipe(Ok);
+                }
+                if self.reader.read_buf(&mut self.buf).await? == 0 {
                     return if self.deframer.is_idle() {
                         Ok(None)
                     } else {
                         Err(Error::TruncatedFrame)
                     };
-                }
-                if let Some(record) = self.deframer.feed(&mut chunk)? {
-                    return T::decode(record).map(Some)?.pipe(Ok);
                 }
             }
         }
@@ -112,6 +113,7 @@ pub mod protobuf {
 
     pub struct LinkStruct<R, W> {
         deframer: Deframer,
+        buf: BytesMut,
         reader: R,
         writer: W,
     }
@@ -122,6 +124,7 @@ pub mod protobuf {
                 deframer: Deframer::builder()
                     .max_payload_length(UNLIMITED_MAX_PAYLOAD_LENGTH)
                     .build(),
+                buf: BytesMut::new(),
                 reader,
                 writer,
             }
@@ -179,14 +182,44 @@ pub mod protobuf {
         #[error("eof truncates frame")]
         TruncatedFrame,
 
-        #[error("eof when trying to read a necessary frame")]
-        UnexpectedEof,
-
         #[error("failed to decode frame: {0}")]
         FrameDecodeFailed(#[from] prost::DecodeError),
     }
 
     pub type Result<T> = core::result::Result<T, Error>;
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use zconned_types::IncomingFrame;
+
+        /// When a single `read_buf` delivers more than one complete frame,
+        /// `Deframer::feed` returns after the first one and leaves the rest
+        /// in the caller's buffer; a per-call chunk drops them. Frames must
+        /// survive in a persistent buffer.
+        #[tokio::test]
+        async fn multiple_frames_in_one_read_buf_are_not_lost() {
+            let encode = |text: &str| {
+                IncomingFrame {
+                    text: text.to_owned(),
+                }
+                .encode_length_delimited_to_vec()
+            };
+            let data = [encode("one"), encode("two")].concat();
+            // `&[u8]` hands its whole content over in a single `read_buf`.
+            let mut link = LinkStruct::new(&data[..], tokio::io::sink());
+
+            let first: IncomingFrame = link.read_frame().await.unwrap().unwrap();
+            assert_eq!(first.text, "one");
+
+            let second: IncomingFrame = link.read_frame().await.unwrap().unwrap();
+            assert_eq!(second.text, "two");
+
+            // Both frames consumed: EOF on an idle deframer is a clean end.
+            let eof: Option<IncomingFrame> = link.read_frame().await.unwrap();
+            assert!(eof.is_none());
+        }
+    }
 }
 
 pub mod jsonl {
@@ -302,12 +335,6 @@ pub mod jsonl {
     pub enum Error {
         #[error("io error: {0}")]
         Io(#[from] std::io::Error),
-
-        #[error("eof truncates frame")]
-        TruncatedFrame,
-
-        #[error("eof when trying to read a necessary frame")]
-        UnexpectedEof,
 
         #[error("failed to decode frame: {0}")]
         FrameDecodeFailed(#[source] std::io::Error),
