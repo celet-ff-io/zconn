@@ -10,12 +10,13 @@ use zconned_io_link::{
 };
 use zconned_types::{Handshake, IncomingFrame, OutgoingFrame, PROTOCOL_VERSION};
 
-use crate::{
-    Result,
-    error::{client_process::Error as ClientPError, core_process::Error as CorePError},
-};
+use crate::error::{client_process::Error as ClientPError, core_process::Error as CorePError};
 
-pub async fn run<R, W>(zconned_bin: &str, client_in: &mut R, client_out: &mut W) -> Result<()>
+pub async fn run<R, W>(
+    zconned_bin: &str,
+    client_in: &mut R,
+    client_out: &mut W,
+) -> crate::Result<()>
 where
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -27,10 +28,12 @@ where
     );
 
     // Handshake with core: translator - hs -> core
-    Handshake { version: 1 }
-        .pipe_ref(|m| core_link.write_frame(m))
-        .await
-        .map_err(CorePError::from)?;
+    Handshake {
+        version: PROTOCOL_VERSION,
+    }
+    .pipe_ref(|m| core_link.write_frame(m))
+    .await
+    .map_err(CorePError::from)?;
 
     let Handshake {
         version: core_version,
@@ -89,7 +92,7 @@ where
 }
 
 #[inline]
-fn spawn_core(core: &str) -> core::result::Result<Child, CorePError> {
+fn spawn_core(core: &str) -> Result<Child, CorePError> {
     Command::new(core)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -98,7 +101,7 @@ fn spawn_core(core: &str) -> core::result::Result<Child, CorePError> {
         .map_err(CorePError::ProcessSpawnFailed)
 }
 
-fn take_stdio<T>(mut opt: Option<T>, name: &str) -> Result<T> {
+fn take_stdio<T>(mut opt: Option<T>, name: &str) -> crate::Result<T> {
     opt.take()
         .ok_or_else(|| CorePError::ProcessStdioPipeConsumed {
             name: name.to_owned(),

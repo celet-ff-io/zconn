@@ -14,7 +14,7 @@ pub mod core_process {
 
     #[derive(Debug, thiserror::Error)]
     pub enum Error {
-        #[error("failed to spawn process")]
+        #[error("failed to spawn process: {0}")]
         ProcessSpawnFailed(#[source] std::io::Error),
 
         #[error("pipe {name} has been already consumed")]
