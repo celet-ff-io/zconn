@@ -10,6 +10,8 @@ pub enum Error {
 }
 
 pub mod core_process {
+    use zconned_io_link::protobuf::Error as ProtobufLinkError;
+
     #[derive(Debug, thiserror::Error)]
     pub enum Error {
         #[error("failed to spawn process")]
@@ -22,7 +24,7 @@ pub mod core_process {
         PipeIo(#[from] std::io::Error),
 
         #[error("{0}")]
-        Link(#[from] crate::link::protobuf::Error),
+        Link(#[from] ProtobufLinkError),
 
         #[error("eof when trying to read a necessary frame")]
         UnexpectedEof,
@@ -33,13 +35,15 @@ pub mod core_process {
 }
 
 pub mod client_process {
+    use zconned_io_link::jsonl::Error as JsonlLinkError;
+
     #[derive(Debug, thiserror::Error)]
     pub enum Error {
         #[error("io error: {0}")]
         Io(#[from] std::io::Error),
 
         #[error("{0}")]
-        Link(#[from] crate::link::jsonl::Error),
+        Link(#[from] JsonlLinkError),
 
         #[error("eof when trying to read a necessary frame")]
         UnexpectedEof,

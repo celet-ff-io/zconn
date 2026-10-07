@@ -1,0 +1,27 @@
+[package]
+name = "zconned-io-link"
+version = "0.1.0-alpha"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+protobuf-varint-deframer.workspace = true
+zconned-types.workspace = true
+
+tap.workspace = true
+thiserror.workspace = true
+bytes.workspace = true
+prost.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
+serde.workspace = true
+serde-jsonlines = { version = "0.7.0", features = ["async"] }
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "rt"] }

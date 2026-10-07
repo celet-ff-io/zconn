@@ -15,12 +15,15 @@ rust-version = "1.98"
 [workspace.dependencies]
 protobuf-varint-deframer = { path = "crates/protobuf-varint-deframer" }
 zconned-types = { path = "crates/zconned-types" }
+zconned-io-link = { path = "crates/zconned-io-link" }
 
 tap = "1.0.1"
-thiserror = "2.0.20"
+thiserror = "2.0.21"
 miette = { version = "7.6.0", features = ["fancy"] }
 pretty_assertions = "1.4.1"
 typed-builder = "0.23.2"
 getset = "0.1.7"
 bytes = "1.12.1"
+tokio = "1.53.2"
+serde = "1.0.229"
 prost = "0.14.4"

@@ -25,9 +25,9 @@ typed-builder.workspace = true
 getset.workspace = true
 bytes.workspace = true
 prost.workspace = true
-tokio = { version = "1.53.1", features = [
-  "io-std",
+tokio = { workspace = true, features = [
   "io-util",
+  "io-std",
   "macros",
   "rt",
   "time",

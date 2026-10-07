@@ -5,12 +5,14 @@ use tokio::{
     io::{AsyncBufRead, AsyncWrite, BufReader},
     process::{Child, Command},
 };
+use zconned_io_link::{
+    ReadLink, WriteLink, jsonl::LinkStruct as JsonlLink, protobuf::LinkStruct as ProtobufLink,
+};
 use zconned_types::{Handshake, IncomingFrame, OutgoingFrame, PROTOCOL_VERSION};
 
 use crate::{
     Result,
     error::{client_process::Error as ClientPError, core_process::Error as CorePError},
-    link::{ReadLink, WriteLink},
 };
 
 pub async fn run<R, W>(zconned_bin: &str, client_in: &mut R, client_out: &mut W) -> Result<()>
@@ -19,7 +21,7 @@ where
     W: AsyncWrite + Unpin,
 {
     let core_process = spawn_core(zconned_bin)?;
-    let mut core_link = crate::link::protobuf::LinkStruct::new(
+    let mut core_link = ProtobufLink::new(
         take_stdio(core_process.stdout, "stdout")?.pipe(BufReader::new),
         take_stdio(core_process.stdin, "stdin")?,
     );
@@ -46,7 +48,7 @@ where
     }
 
     // Handshake with client: client - hs -> translator
-    let mut client_link = crate::link::jsonl::LinkStruct::new(client_in, client_out);
+    let mut client_link = JsonlLink::new(client_in, client_out);
     let Handshake {
         version: client_version,
     } = client_link
