@@ -1,10 +1,11 @@
 use miette::{IntoDiagnostic, Result};
-use tokio::io::{BufReader, BufWriter};
+use tap::Pipe as _;
+use tokio::io::BufReader;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    let mut stdin = BufReader::new(tokio::io::stdin());
-    let mut stdout = BufWriter::new(tokio::io::stdout());
+    let mut stdin = tokio::io::stdin().pipe(BufReader::new);
+    let mut stdout = tokio::io::stdout();
 
     zconned::run(&mut stdin, &mut stdout)
         .await

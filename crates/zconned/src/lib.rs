@@ -1,5 +1,5 @@
 mod error;
-mod server;
+mod host;
 
-pub use error::{ZconnedError, ZconnedResult};
-pub use server::run;
+pub use error::{Error, Result};
+pub use host::run;

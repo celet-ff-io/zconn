@@ -17,6 +17,7 @@ path = "src/bin/zconned/main.rs"
 [dependencies]
 protobuf-varint-deframer.workspace = true
 zconned-types.workspace = true
+zconned-io-link.workspace = true
 
 tap.workspace = true
 thiserror.workspace = true

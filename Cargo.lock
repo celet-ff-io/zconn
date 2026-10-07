@@ -993,6 +993,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "typed-builder",
+ "zconned-io-link",
  "zconned-types",
 ]
 
