@@ -55,6 +55,18 @@
               rustfmt
               clippy
             ];
+            shellHook = ''
+              # Dev default for the translator: point it at the locally built
+              # core, so manual JSON testing is just
+              #   cargo build --bin zconned && cargo run --bin zconned-json-translator
+              # Works for both in-repo and absolute CARGO_TARGET_DIR layouts;
+              # override the env var manually for anything else.
+              case "''${CARGO_TARGET_DIR:-target}" in
+                /*) target_dir="''${CARGO_TARGET_DIR:-target}" ;;
+                *) target_dir="$PWD/''${CARGO_TARGET_DIR:-target}" ;;
+              esac
+              export ZCONNED__CORE="$target_dir/debug/zconned"
+            '';
           };
         }
       );

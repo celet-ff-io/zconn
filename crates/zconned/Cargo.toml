@@ -19,9 +19,15 @@ protobuf-varint-deframer.workspace = true
 zconned-types.workspace = true
 zconned-io-link.workspace = true
 
+# bin-only deps (clap/env_logger/miette): publish = false, see the
+# publish-plan standing item before any release.
+log.workspace = true
 tap.workspace = true
 thiserror.workspace = true
 miette.workspace = true
+clap.workspace = true
+clap-verbosity-flag.workspace = true
+env_logger.workspace = true
 typed-builder.workspace = true
 getset.workspace = true
 bytes.workspace = true

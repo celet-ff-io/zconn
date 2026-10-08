@@ -19,9 +19,13 @@ protobuf-varint-deframer.workspace = true
 zconned-types.workspace = true
 zconned-io-link.workspace = true
 
+log.workspace = true
 tap.workspace = true
 thiserror.workspace = true
 miette.workspace = true
+clap.workspace = true
+clap-verbosity-flag.workspace = true
+env_logger.workspace = true
 tokio = { workspace = true, features = [
   "io-util",
   "io-std",

@@ -54,11 +54,13 @@ where
             .map_err(ClientPError::from)?;
     }
 
+    log::info!("client disconnected (eof)");
     Ok(())
 }
 
 #[inline]
 fn spawn_core(core: &str) -> Result<Child, CorePError> {
+    log::info!("spawning core process `{core}`");
     Command::new(core)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -102,6 +104,7 @@ where
         .pipe(Err)?;
     }
 
+    log::info!("handshake with core ok (version {PROTOCOL_VERSION})");
     Ok(())
 }
 
@@ -131,6 +134,7 @@ where
             version: PROTOCOL_VERSION,
         })
         .await?;
+    log::info!("handshake with client ok (version {PROTOCOL_VERSION})");
 
     Ok(())
 }

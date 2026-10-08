@@ -1,5 +1,5 @@
 use tap::Pipe as _;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncWrite};
 use tokio::time::{Duration, sleep};
 
 use zconned_io_link::{
@@ -10,10 +10,10 @@ use zconned_types::{Handshake, IncomingFrame, OutgoingFrame, PROTOCOL_VERSION};
 
 const ECHO_DELAY: Duration = Duration::from_secs(1);
 
-pub async fn run<R, W>(stdin: &mut BufReader<R>, stdout: &mut W) -> crate::Result<()>
+pub async fn run<R, W>(stdin: &mut R, stdout: &mut W) -> crate::Result<()>
 where
-    R: AsyncReadExt + Unpin,
-    W: AsyncWriteExt + Unpin,
+    R: AsyncBufRead + Unpin,
+    W: AsyncWrite + Unpin,
 {
     let mut stdio_link = ProtobufLink::new(stdin, stdout);
 
@@ -39,6 +39,7 @@ where
     .pipe_ref(|m| stdio_link.write_frame(m))
     .await
     .map_err(StdioHostError::from)?;
+    log::info!("handshake with user ok (version {PROTOCOL_VERSION})");
 
     while let Some(incoming_frame) = stdio_link
         .read_frame::<IncomingFrame>()
@@ -51,6 +52,7 @@ where
             .await
             .map_err(StdioHostError::from)?;
     }
+    log::info!("user disconnected (eof)");
     Ok(())
 }
 
