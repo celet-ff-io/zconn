@@ -132,6 +132,7 @@ where
 }
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),

@@ -55,6 +55,7 @@ where
 }
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum StdioHostError {
     #[error("{0}")]
     Link(#[from] ProtobufLinkError),

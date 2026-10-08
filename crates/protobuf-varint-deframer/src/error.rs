@@ -1,6 +1,8 @@
 use core::fmt::{Display, Formatter};
 
+/// Terminal errors of the deframer state machine.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     /// Payload length exceeds the maximum allowed value.
     ///
@@ -20,7 +22,10 @@ pub enum Error {
     ProstDecodeLengthDelimiterError(#[from] prost::DecodeError),
 }
 
+/// The offending length-delimiter value, as declared by the wire or
+/// reported as unknowable.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[non_exhaustive]
 pub enum LengthDelimiterExcess {
     Declared(u64),
     Unknown,
