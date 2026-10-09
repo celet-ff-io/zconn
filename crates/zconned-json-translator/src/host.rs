@@ -2,7 +2,7 @@ use std::process::Stdio;
 
 use tap::Pipe as _;
 use tokio::{
-    io::{AsyncBufRead, AsyncReadExt, AsyncWrite, BufReader},
+    io::{AsyncBufRead, AsyncWrite, BufReader, empty, sink},
     process::{Child, Command},
 };
 use zconned_io_link::{
@@ -30,56 +30,78 @@ where
     // Handshake with core: translator - hs -> core
     handshake_with_core(&mut core_link).await?;
 
-    let mut client_link = JsonlLink::new(client_in, client_out);
+    let mut client_link = JsonlLink::new(&mut *client_in, &mut *client_out);
     // Handshake with client: client - hs -> translator
     handshake_with_client(&mut client_link).await?;
 
     // Data phase
-    while let Some(frame_from_client) = client_link
+    let client_pump = pump_client_to_core(&mut *client_in, core_stdin);
+    let core_pump = pump_core_to_client(core_stdout, &mut *client_out);
+    tokio::pin!(client_pump, core_pump);
+    tokio::select! {
+        biased;
+        client_res = &mut client_pump => {
+            let core_res = core_pump.await;
+            client_res.and(core_res)
+        }
+        core_res = &mut core_pump => match core_res {
+            Ok(()) => CorePError::UnexpectedEof.pipe(crate::Error::from).pipe(Err),
+            e => e,
+        },
+    }?;
+
+    let status = core_process.wait().await.map_err(CorePError::from)?;
+    if !status.success() {
+        CorePError::BadExitStatus(status).pipe(Err)?;
+    }
+    log::info!("core exit 0");
+    Ok(())
+}
+
+/// client → core pump
+async fn pump_client_to_core<C, S>(client_in: C, mut core_stdin: S) -> crate::Result<()>
+where
+    C: AsyncBufRead + Unpin,
+    S: AsyncWrite + Unpin,
+{
+    let mut from_client = JsonlLink::new(client_in, sink());
+    let mut to_core = ProtobufLink::new(empty(), &mut core_stdin);
+    while let Some(frame) = from_client
         .read_frame::<IncomingFrame>()
         .await
         .map_err(ClientPError::from)?
     {
-        log::debug!(
-            "client frame in (text of {} byte(s))",
-            frame_from_client.text.len()
-        );
-        core_link
-            .write_frame(&frame_from_client)
+        log::trace!("client frame in (text of {} byte(s))", frame.text.len());
+        to_core
+            .write_frame(&frame)
             .await
             .map_err(CorePError::from)?;
+        log::trace!("frame out to core (text of {} byte(s))", frame.text.len());
+    }
+    log::info!("client EOF; core stdin dropped (EOF to core)");
+    Ok(())
+}
 
-        let frame_from_core: OutgoingFrame = core_link
-            .read_frame()
-            .await
-            .map_err(CorePError::from)?
-            .ok_or(CorePError::UnexpectedEof)?;
-        client_link
-            .write_frame(&frame_from_core)
+/// core → client pump
+async fn pump_core_to_client<R, C>(core_stdout: R, client_out: C) -> crate::Result<()>
+where
+    R: AsyncBufRead + Unpin,
+    C: AsyncWrite + Unpin,
+{
+    let mut from_core = ProtobufLink::new(core_stdout, sink());
+    let mut to_client = JsonlLink::new(empty(), client_out);
+    while let Some(frame) = from_core
+        .read_frame::<OutgoingFrame>()
+        .await
+        .map_err(CorePError::from)?
+    {
+        log::trace!("core frame in (text of {} byte(s))", frame.text.len());
+        to_client
+            .write_frame(&frame)
             .await
             .map_err(ClientPError::from)?;
+        log::trace!("frame out to client (text of {} byte(s))", frame.text.len());
     }
-
-    // Send EOF signal to core via its stdin
-    log::info!("client EOF; closing core stdin and reaping core");
-    drop(core_link);
-    drop(core_stdin);
-    loop {
-        let mut chunk = [0u8; 8192];
-        if core_stdout
-            .read(&mut chunk)
-            .await
-            .map_err(CorePError::from)?
-            == 0
-        {
-            break;
-        }
-    }
-    let status = core_process.wait().await.map_err(CorePError::from)?;
-    if !status.success() {
-        return Err(CorePError::BadExitStatus(status).into());
-    }
-    log::info!("core exit 0");
     Ok(())
 }
 
@@ -125,10 +147,11 @@ where
         .map_err(CorePError::from)?
         .ok_or(CorePError::UnexpectedEof)?;
     if core_version != PROTOCOL_VERSION {
-        return Err(CorePError::VersionMismatch {
+        return CorePError::VersionMismatch {
             this: PROTOCOL_VERSION,
             received: core_version,
-        });
+        }
+        .pipe(Err);
     }
 
     log::info!("core handshake ok (version {PROTOCOL_VERSION})");
@@ -150,10 +173,11 @@ where
         .map_err(ClientPError::from)?
         .ok_or(ClientPError::UnexpectedEof)?;
     if client_version != PROTOCOL_VERSION {
-        return Err(ClientPError::VersionMismatch {
+        return ClientPError::VersionMismatch {
             this: PROTOCOL_VERSION,
             received: client_version,
-        });
+        }
+        .pipe(Err);
     }
 
     client_link

@@ -29,7 +29,7 @@ pub mod core_process {
         #[error("{0}")]
         Link(#[from] ProtobufLinkError),
 
-        #[error("eof when trying to read a necessary frame")]
+        #[error("eof when trying to read a necessary frame or eof too early")]
         UnexpectedEof,
 
         #[error("core exited with a bad status: {0}")]
