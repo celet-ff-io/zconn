@@ -36,3 +36,4 @@ tokio = { workspace = true, features = [
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+tokio = { workspace = true, features = ["time", "test-util"] }

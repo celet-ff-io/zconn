@@ -2,7 +2,7 @@ use std::process::Stdio;
 
 use tap::Pipe as _;
 use tokio::{
-    io::{AsyncBufRead, AsyncWrite, BufReader},
+    io::{AsyncBufRead, AsyncReadExt, AsyncWrite, BufReader},
     process::{Child, Command},
 };
 use zconned_io_link::{
@@ -21,11 +21,12 @@ where
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let core_process = spawn_core(zconned_bin)?;
-    let mut core_link = ProtobufLink::new(
-        take_stdio(core_process.stdout, "stdout")?.pipe(BufReader::new),
-        take_stdio(core_process.stdin, "stdin")?,
-    );
+    log::info!("session starting; spawning core: {zconned_bin}");
+    let mut core_process = spawn_core(zconned_bin)?;
+    let mut core_stdin = take_stdio(core_process.stdin.take(), "stdin")?;
+    let mut core_stdout = BufReader::new(take_stdio(core_process.stdout.take(), "stdout")?);
+    let mut core_link = ProtobufLink::new(&mut core_stdout, &mut core_stdin);
+
     // Handshake with core: translator - hs -> core
     handshake_with_core(&mut core_link).await?;
 
@@ -33,11 +34,16 @@ where
     // Handshake with client: client - hs -> translator
     handshake_with_client(&mut client_link).await?;
 
+    // Data phase
     while let Some(frame_from_client) = client_link
         .read_frame::<IncomingFrame>()
         .await
         .map_err(ClientPError::from)?
     {
+        log::debug!(
+            "client frame in (text of {} byte(s))",
+            frame_from_client.text.len()
+        );
         core_link
             .write_frame(&frame_from_client)
             .await
@@ -54,7 +60,26 @@ where
             .map_err(ClientPError::from)?;
     }
 
-    log::info!("client disconnected (eof)");
+    // Send EOF signal to core via its stdin
+    log::info!("client EOF; closing core stdin and reaping core");
+    drop(core_link);
+    drop(core_stdin);
+    loop {
+        let mut chunk = [0u8; 8192];
+        if core_stdout
+            .read(&mut chunk)
+            .await
+            .map_err(CorePError::from)?
+            == 0
+        {
+            break;
+        }
+    }
+    let status = core_process.wait().await.map_err(CorePError::from)?;
+    if !status.success() {
+        return Err(CorePError::BadExitStatus(status).into());
+    }
+    log::info!("core exit 0");
     Ok(())
 }
 
@@ -65,16 +90,18 @@ fn spawn_core(core: &str) -> Result<Child, CorePError> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
+        // If the translator itself dies mid-session, do not leave a
+        // running core behind.
+        .kill_on_drop(true)
         .spawn()
         .map_err(CorePError::ProcessSpawnFailed)
 }
 
-fn take_stdio<T>(mut opt: Option<T>, name: &str) -> crate::Result<T> {
+fn take_stdio<T>(mut opt: Option<T>, name: &str) -> Result<T, CorePError> {
     opt.take()
         .ok_or_else(|| CorePError::ProcessStdioPipeConsumed {
             name: name.to_owned(),
-        })?
-        .pipe(Ok)
+        })
 }
 
 /// translator - hs -> core
@@ -94,17 +121,17 @@ where
         version: core_version,
     } = core_link
         .read_frame()
-        .await?
+        .await
+        .map_err(CorePError::from)?
         .ok_or(CorePError::UnexpectedEof)?;
     if core_version != PROTOCOL_VERSION {
-        CorePError::VersionMismatch {
+        return Err(CorePError::VersionMismatch {
             this: PROTOCOL_VERSION,
             received: core_version,
-        }
-        .pipe(Err)?;
+        });
     }
 
-    log::info!("handshake with core ok (version {PROTOCOL_VERSION})");
+    log::info!("core handshake ok (version {PROTOCOL_VERSION})");
     Ok(())
 }
 
@@ -119,22 +146,23 @@ where
         version: client_version,
     } = client_link
         .read_frame()
-        .await?
+        .await
+        .map_err(ClientPError::from)?
         .ok_or(ClientPError::UnexpectedEof)?;
     if client_version != PROTOCOL_VERSION {
-        ClientPError::VersionMismatch {
+        return Err(ClientPError::VersionMismatch {
             this: PROTOCOL_VERSION,
             received: client_version,
-        }
-        .pipe(Err)?;
+        });
     }
 
     client_link
         .write_frame(&Handshake {
             version: PROTOCOL_VERSION,
         })
-        .await?;
-    log::info!("handshake with client ok (version {PROTOCOL_VERSION})");
+        .await
+        .map_err(ClientPError::from)?;
+    log::info!("client handshake acked (version {PROTOCOL_VERSION})");
 
     Ok(())
 }

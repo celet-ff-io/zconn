@@ -32,6 +32,9 @@ pub mod core_process {
         #[error("eof when trying to read a necessary frame")]
         UnexpectedEof,
 
+        #[error("core exited with a bad status: {0}")]
+        BadExitStatus(std::process::ExitStatus),
+
         #[error("protocol version mismatch: translator version {this}, core version {received}")]
         VersionMismatch { this: u32, received: u32 },
     }
