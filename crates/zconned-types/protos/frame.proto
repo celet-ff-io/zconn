@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package zconn.zconned.frame;
+
+message Handshake {
+  uint32 version = 1;
+}
+
+message IncomingFrame {
+  string text = 1;
+}
+
+message OutgoingFrame {
+  string text = 1;
+}
