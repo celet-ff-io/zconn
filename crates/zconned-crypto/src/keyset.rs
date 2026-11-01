@@ -80,15 +80,18 @@ impl std::fmt::Debug for KeySet {
 impl KeySet {
     /// Generate a fresh identity from OS randomness.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// If the OS randomness source is unavailable.
-    pub fn generate() -> Self {
+    /// [`IdentityError::Entropy`] if the OS randomness source is
+    /// unavailable (environmental, not an invariant failure —
+    /// unlike the encoding invariants below, the entropy source
+    /// can genuinely fail on unsupported platforms).
+    pub fn generate() -> Result<Self, IdentityError> {
         let mut master = [0u8; MASTER_LEN];
-        getrandom::fill(&mut master).expect("os randomness unavailable");
+        getrandom::fill(&mut master)?;
         let keyset = Self::from_master(&master);
         master.zeroize();
-        keyset
+        Ok(keyset)
     }
 
     /// Derive the two-key set from the master: the only
@@ -161,15 +164,15 @@ mod tests {
 
     #[test]
     fn generate_produces_independent_keys() {
-        let a = KeySet::generate();
-        let b = KeySet::generate();
+        let a = KeySet::generate().expect("os randomness");
+        let b = KeySet::generate().expect("os randomness");
         assert_ne!(a.fingerprint(), b.fingerprint());
         assert_ne!(a.static_dh_public_bytes(), b.static_dh_public_bytes());
     }
 
     #[test]
     fn to_bytes_roundtrips() {
-        let ks = KeySet::generate();
+        let ks = KeySet::generate().expect("os randomness");
         let bytes = ks.to_bytes();
         assert_eq!(bytes.len(), MASTER_LEN);
         let back = KeySet::from_bytes(&bytes).expect("from_bytes");
