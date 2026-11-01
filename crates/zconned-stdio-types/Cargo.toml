@@ -1,5 +1,5 @@
 [package]
-name = "zconned-types"
+name = "zconned-stdio-types"
 version = "0.1.0-alpha"
 authors.workspace = true
 edition.workspace = true

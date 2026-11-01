@@ -12,7 +12,7 @@ rust-version.workspace = true
 
 [dependencies]
 protobuf-varint-deframer.workspace = true
-zconned-types.workspace = true
+zconned-stdio-types.workspace = true
 
 tap.workspace = true
 thiserror.workspace = true

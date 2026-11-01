@@ -41,7 +41,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, duplex};
 use tokio::time::timeout;
 
 use zconned_json_translator::run;
-use zconned_types::{Handshake, IncomingFrame, PROTOCOL_VERSION};
+use zconned_stdio_types::{Handshake, IncomingFrame, PROTOCOL_VERSION};
 
 const BUDGET: Duration = Duration::from_secs(5);
 

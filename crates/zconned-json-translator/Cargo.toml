@@ -16,7 +16,7 @@ path = "src/bin/zconned-json-translator/main.rs"
 
 [dependencies]
 protobuf-varint-deframer.workspace = true
-zconned-types.workspace = true
+zconned-stdio-types.workspace = true
 zconned-io-link.workspace = true
 
 log.workspace = true

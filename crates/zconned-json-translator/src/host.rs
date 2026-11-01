@@ -8,7 +8,7 @@ use tokio::{
 use zconned_io_link::{
     ReadLink, WriteLink, jsonl::LinkStruct as JsonlLink, protobuf::LinkStruct as ProtobufLink,
 };
-use zconned_types::{Handshake, IncomingFrame, OutgoingFrame, PROTOCOL_VERSION};
+use zconned_stdio_types::{Handshake, IncomingFrame, OutgoingFrame, PROTOCOL_VERSION};
 
 use crate::error::{client_process::Error as ClientPError, core_process::Error as CorePError};
 

@@ -1546,7 +1546,7 @@ dependencies = [
  "tokio",
  "typed-builder",
  "zconned-io-link",
- "zconned-types",
+ "zconned-stdio-types",
 ]
 
 [[package]]
@@ -1590,7 +1590,7 @@ dependencies = [
  "tap",
  "thiserror",
  "tokio",
- "zconned-types",
+ "zconned-stdio-types",
 ]
 
 [[package]]
@@ -1610,11 +1610,11 @@ dependencies = [
  "thiserror",
  "tokio",
  "zconned-io-link",
- "zconned-types",
+ "zconned-stdio-types",
 ]
 
 [[package]]
-name = "zconned-types"
+name = "zconned-stdio-types"
 version = "0.1.0-alpha"
 dependencies = [
  "pbjson",

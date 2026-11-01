@@ -6,7 +6,7 @@ use zconned_io_link::{
     ReadLink, WriteLink,
     protobuf::{Error as ProtobufLinkError, LinkStruct as ProtobufLink},
 };
-use zconned_types::{Handshake, IncomingFrame, OutgoingFrame, PROTOCOL_VERSION};
+use zconned_stdio_types::{Handshake, IncomingFrame, OutgoingFrame, PROTOCOL_VERSION};
 
 const ECHO_DELAY: Duration = Duration::from_secs(1);
 

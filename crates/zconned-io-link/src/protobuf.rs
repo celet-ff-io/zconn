@@ -152,7 +152,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zconned_types::IncomingFrame;
+    use zconned_stdio_types::IncomingFrame;
 
     /// When a single `read_buf` delivers more than one complete frame,
     /// `Deframer::feed` returns after the first one and leaves the rest
