@@ -1,6 +1,5 @@
 use ed25519_dalek::SigningKey;
 use getset::Getters;
-use rand_core::{OsRng, RngCore as _};
 use x25519_dalek::{PublicKey as XPublicKey, StaticSecret};
 use zeroize::Zeroize as _;
 
@@ -80,9 +79,13 @@ impl std::fmt::Debug for KeySet {
 
 impl KeySet {
     /// Generate a fresh identity from OS randomness.
+    ///
+    /// # Panics
+    ///
+    /// If the OS randomness source is unavailable.
     pub fn generate() -> Self {
         let mut master = [0u8; MASTER_LEN];
-        OsRng.fill_bytes(&mut master);
+        getrandom::fill(&mut master).expect("os randomness unavailable");
         let keyset = Self::from_master(&master);
         master.zeroize();
         keyset
@@ -189,7 +192,7 @@ mod tests {
     #[test]
     fn same_master_yields_same_keys() {
         let mut master = [0u8; MASTER_LEN];
-        OsRng.fill_bytes(&mut master);
+        getrandom::fill(&mut master).expect("os randomness unavailable");
         let a = KeySet::from_master(&master);
         let b = KeySet::from_master(&master);
         assert_eq!(a.fingerprint(), b.fingerprint());

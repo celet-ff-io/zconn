@@ -11,9 +11,9 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-ed25519-dalek = { workspace = true, features = ["rand_core", "zeroize"] }
+ed25519-dalek = { workspace = true }
 x25519-dalek = { workspace = true, features = ["static_secrets"] }
-rand_core = { workspace = true, features = ["getrandom"] }
+getrandom = { workspace = true }
 sha3.workspace = true
 sha3-kmac.workspace = true
 thiserror.workspace = true
