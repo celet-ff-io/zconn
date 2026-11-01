@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+// The message material (node model; Q12/Q13/Q14 landed 2026-10-21,
+// ts placement per the 2026-10-28 W-1 reversal).
+//
+// Contract: the transport bytes ARE the canonical bytes
+// (deterministic proto3 profile) — the digest machine hashes them
+// as received; the row renderer reads this structure via prost
+// fields and never the raw bytes.
+package zconn.zconned.material;
+
+message Msg {
+  // Version anchor: must stay field 1 of Msg; never descends into
+  // body.meta.
+  uint32 ver_major = 1;
+  // Omitted on the wire when 0 (implicit presence).
+  uint32 ver_minor = 2;
+  Node body = 3;
+}
+
+message Node {
+  Meta meta = 1;
+  string kind = 2;
+  bytes data = 3;
+}
+
+message Meta {
+  // Root-only: setting prev on a non-root node is invalid
+  // (fsck-checkable). Omitted on a genesis message.
+  repeated Ref prev = 1;
+}
+
+message Ref {
+  uint32 ver_major = 1;
+  uint32 ver_minor = 2;
+  string algo = 3;
+  bytes digest = 4;
+}

@@ -15,6 +15,7 @@ rust-version = "1.98"
 [workspace.dependencies]
 protobuf-varint-deframer = { path = "crates/protobuf-varint-deframer" }
 zconned-stdio-types = { path = "crates/zconned-stdio-types" }
+zconned-material = { path = "crates/zconned-material" }
 zconned-io-link = { path = "crates/zconned-io-link" }
 zconned-crypto = { path = "crates/zconned-crypto" }
 zconned-codec = { path = "crates/zconned-codec" }
