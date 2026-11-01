@@ -152,6 +152,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pretty_assertions::assert_eq;
     use zconned_stdio_types::IncomingFrame;
 
     /// When a single `read_buf` delivers more than one complete frame,

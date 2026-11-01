@@ -58,6 +58,7 @@ fn decode_key<const N: usize>(field: &'static str, raw: &str) -> Result<[u8; N],
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pretty_assertions::assert_eq;
 
     fn sample_set() -> peer::PublicKeySet {
         peer::PublicKeySet::builder()

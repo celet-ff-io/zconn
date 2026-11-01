@@ -14,6 +14,7 @@ pub fn derive(master: &[u8; 32], label: &[u8], out: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn deterministic_for_same_master_and_label() {

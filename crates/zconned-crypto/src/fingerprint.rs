@@ -48,6 +48,7 @@ impl Display for Fingerprint {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn display_matches_ratified_notation() {
