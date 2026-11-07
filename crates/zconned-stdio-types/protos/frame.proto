@@ -1,15 +1,157 @@
 syntax = "proto3";
 
+// frame.proto — the stdio wire contract (object-path-first,
+// verb-last). Replaces the placeholder v1 file (echo text +
+// append/clear/get); those field numbers die with it.
+//
+// The oneof carries method messages (rpc term: json-rpc/LSP
+// "method"). Requests = imperative verbs; statements = past-tense;
+// answers = the bare object noun; the msg_draft snapshot is
+// dual-role. Dispatch: statements anytime; answers pair with the
+// pending request; an all-default frame gets an error, not death.
+//
+// Version discipline: fields are only ever added; a wire-breaking
+// change bumps PROTOCOL_VERSION.
 package zconn.zconned.frame;
+
+import "google/protobuf/timestamp.proto";
+import "material.proto";
 
 message Handshake {
   uint32 version = 1;
 }
 
+// ---- interface -> core ----
 message IncomingFrame {
-  string text = 1;
+  oneof method {
+    MsgCursorSet msg_cursor_set = 1;
+    MsgDraftContentSet msg_draft_content_set = 2;
+    MsgDraftContentReset msg_draft_content_reset = 3;
+    MsgDraftClaimsAdd msg_draft_claims_add = 4;
+    MsgDraftClaimsRemove msg_draft_claims_remove = 5;
+    MsgDraftClaimsClear msg_draft_claims_clear = 6;
+    MsgDraftGet msg_draft_get = 7;
+    MsgDraftCommit msg_draft_commit = 8;
+    MsgThreadsGet msg_threads_get = 9;
+    MsgThreadsLogGet msg_threads_log_get = 10;
+  }
 }
 
+// Position the compose cursor: either lock the exact branch/merge
+// base (at — the refs become the commit's prev) or start a new
+// chain (fresh — the core generates the random genesis parent,
+// core-side entropy). Neither set = a malformed op.
+message MsgCursorSet {
+  repeated material.MsgRef at = 1;
+  Fresh fresh = 2;
+}
+
+// New chain: no fields today; the core generates the parent.
+message Fresh {}
+
+message MsgDraftContentSet {
+  string kind = 1;
+  bytes data = 2;
+}
+
+message MsgDraftContentReset {}
+
+// Stage a claim. data is omitted for vnd.zconn.* kinds (the core
+// stamps their values at commit) and carried for vendor kinds
+// (honest interface data, transported blindly).
+message MsgDraftClaimsAdd {
+  string kind = 1;
+  bytes data = 2;
+}
+
+message MsgDraftClaimsRemove {
+  string kind = 1;
+}
+
+message MsgDraftClaimsClear {}
+
+message MsgDraftGet {}
+
+message MsgDraftCommit {}
+
+message MsgThreadsGet {}
+
+message MsgThreadsLogGet {
+  material.MsgRef thread = 1;
+}
+
+// ---- core -> interface ----
 message OutgoingFrame {
-  string text = 1;
+  oneof frame {
+    MsgAdded msg_added = 1;
+    PositionSet position_set = 2;
+    MsgDraft msg_draft = 3;
+    MsgThreads msg_threads = 4;
+    MsgThreadsLog msg_threads_log = 5;
+    Error error = 6;
+  }
+}
+
+// Commit receipt AND peer arrival — one type; entry = the
+// wire/display unit.
+message MsgAdded {
+  Entry entry = 1;
+}
+
+// Cursor-set receipt; future: arrival-driven cursor moves.
+message PositionSet {
+  repeated material.MsgRef refs = 1;
+}
+
+// The draft's working state (content + claim values). Pushed after
+// every staging op and the msg_draft_get answer (dual-role).
+message MsgDraft {
+  material.ResourceRef content = 1;
+  repeated material.Claim claims = 2;
+}
+
+// Thread list: one ThreadEntry per thread (a wrapper NOW — growth
+// = additive fields; a bare repeated Ref list could never enrich
+// without a breaking type change).
+message MsgThreads {
+  repeated ThreadEntry threads = 1;
+}
+
+message ThreadEntry {
+  material.MsgRef thread = 1;
+}
+
+// A thread's log: the wire unit per message. NOT the TranscriptRow
+// file unit (same facts, different medium — the row adds the
+// contentHash/resource anchors and hex notation).
+message MsgThreadsLog {
+  repeated Entry entries = 1;
+}
+
+message Entry {
+  material.Msg msg = 1;
+  RowMeta meta = 2;
+  // The referenced values, resolved (commit return: the stamped
+  // registry values; browsing: reconstruction). Consumers without
+  // the need ignore them.
+  repeated material.Resource values = 3;
+}
+
+// Observer facts on the wire: local record time + the identity
+// digest (over the canonical wire Msg bytes). The clock belongs to
+// the recording side.
+message RowMeta {
+  google.protobuf.Timestamp ts = 1;
+  string algo = 2;
+  bytes digest = 3;
+}
+
+// Application-recoverable failures. PROVISIONAL shape (live;
+// update in place if it misbehaves). Code registry, day-one,
+// strings in snake case, grows additively:
+//   content_required · kind_required · malformed_frame ·
+//   handshake_version · internal
+message Error {
+  string code = 1;
+  string message = 2;
 }

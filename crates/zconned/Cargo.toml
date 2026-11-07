@@ -18,6 +18,15 @@ path = "src/bin/zconned/main.rs"
 protobuf-varint-deframer.workspace = true
 zconned-stdio-types.workspace = true
 zconned-io-link.workspace = true
+base64.workspace = true
+zconned-codec.workspace = true
+zconned-material.workspace = true
+zconned-crypto.workspace = true
+pbjson-types = "0.9.0"
+getrandom.workspace = true
+dirs.workspace = true
+time.workspace = true
+serde_json.workspace = true
 
 # bin-only deps (clap/env_logger/miette): publish = false, see the
 # publish-plan standing item before any release.
@@ -42,3 +51,5 @@ tokio = { workspace = true, features = [
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+tempfile.workspace = true
+zconned-io-link.workspace = true

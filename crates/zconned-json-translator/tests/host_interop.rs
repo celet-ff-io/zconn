@@ -41,7 +41,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, duplex};
 use tokio::time::timeout;
 
 use zconned_json_translator::run;
-use zconned_stdio_types::{Handshake, IncomingFrame, PROTOCOL_VERSION};
+use zconned_stdio_types::{Handshake, PROTOCOL_VERSION};
 
 const BUDGET: Duration = Duration::from_secs(5);
 
@@ -70,17 +70,38 @@ fn handshake_frame() -> Vec<u8> {
     buf
 }
 
-/// The prost length-delimited body frame the `echo-then-die` core
-/// echoes (what the translator sends for the client text `"hi"`).
-fn body_frame() -> Vec<u8> {
-    let frame = IncomingFrame {
-        text: "hi".to_owned(),
+/// The prost length-delimited body frame the fake cores emit: a valid
+/// `OutgoingFrame` (an empty position_set — the grammar-B answer a
+/// canned core can speak). Since v3 the two directions carry
+/// DIFFERENT types, so a byte-for-byte `cat` echo no longer yields a
+/// decodable answer; the canned frames replace it.
+fn canned_outgoing_frame() -> Vec<u8> {
+    use zconned_stdio_types::{OutgoingFrame, outgoing_frame::Frame, PositionSet};
+    let frame = OutgoingFrame {
+        frame: Some(Frame::PositionSet(PositionSet { refs: vec![] })),
     };
     let mut buf = Vec::with_capacity(8);
     frame
         .encode_length_delimited(&mut buf)
         .expect("in-memory encode cannot fail");
     buf
+}
+
+/// The JSON line the client receives for the canned outgoing frame
+/// (derived by serializing the same type — no hand-counted bytes).
+fn canned_outgoing_json() -> String {
+    use zconned_stdio_types::{OutgoingFrame, outgoing_frame::Frame, PositionSet};
+    let frame = OutgoingFrame {
+        frame: Some(Frame::PositionSet(PositionSet { refs: vec![] })),
+    };
+    let mut line = serde_json::to_string(&frame).unwrap();
+    line.push('\n');
+    line
+}
+
+/// A valid grammar-B client request line (op = msg_threads_get).
+fn client_request_json() -> String {
+    format!("{{\"msgThreadsGet\":{{}}}}\n")
 }
 
 /// Script table: every fake core the suite needs. ALL scripts are written
@@ -94,15 +115,24 @@ fn body_frame() -> Vec<u8> {
 /// every test blocks on cache init until ALL scripts exist, so no exec
 /// can ever overlap a write.
 const SCRIPTS: &[(&str, &str)] = &[
-    ("echo", "cat"),             // echoes every frame byte-for-byte
-    ("bad-exit", "cat\nexit 3"), // acks+echoes, then exits 3 after client EOF
+    // Echoes every frame byte-for-byte: with v3's asymmetric types
+    // this only works for the handshake (symmetric type) — used by
+    // the malformed-INPUT tests where garbage fails client-side
+    // before any frame reaches the core.
+    ("echo", "cat"),
     ("instant-death", "exit 1"), // dead before the handshake ever lands
 ];
 
 /// Every fake-core kind the suite materializes. The const-table kinds
 /// live in `SCRIPTS`; kinds whose body needs runtime data (real encoder
 /// lengths) are built in [`script_body`].
-const SCRIPT_KINDS: &[&str] = &["echo", "bad-exit", "instant-death", "echo-then-die"];
+const SCRIPT_KINDS: &[&str] = &[
+    "echo",
+    "instant-death",
+    "bad-exit",
+    "ack-position",
+    "echo-then-die",
+];
 
 /// Script body for `kind`, including the shebang line.
 fn script_body(kind: &str) -> String {
@@ -113,10 +143,25 @@ fn script_body(kind: &str) -> String {
         // read byte goes to stdout) and reads EXACT counts, so the
         // counts come from the real encoder — no wire bytes are
         // hardcoded.
-        "echo-then-die" => format!(
-            "#!/bin/sh\ndd bs=1 count={} 2>/dev/null\ndd bs=1 count={} 2>/dev/null\nsleep 0.5",
+        // Acks the handshake, emits ONE canned position_set answer,
+        // then stays quiet until client EOF (the only legal end).
+        // The canned answer comes from a pre-written file (dd's stdin
+        // here is the CORE link's request stream, not a source for
+        // the canned bytes).
+        "ack-position" => format!(
+            "#!/bin/sh\ndd bs=1 count={} 2>/dev/null\ndd if=\"$0.canned\" bs=1 2>/dev/null\ncat >/dev/null",
             handshake_frame().len(),
-            body_frame().len(),
+        ),
+        // Same, but exits 3 AFTER client EOF (teardown status contract).
+        "bad-exit" => format!(
+            "#!/bin/sh\ndd bs=1 count={} 2>/dev/null\ndd if=\"$0.canned\" bs=1 2>/dev/null\ncat >/dev/null\nexit 3",
+            handshake_frame().len(),
+        ),
+        // Mid-session-death core: acks the handshake, answers one
+        // request, then dies while the client is still active.
+        "echo-then-die" => format!(
+            "#!/bin/sh\ndd bs=1 count={} 2>/dev/null\ndd if=\"$0.canned\" bs=1 2>/dev/null\nsleep 0.5",
+            handshake_frame().len(),
         ),
         _ => {
             let (_, body) = SCRIPTS
@@ -177,6 +222,13 @@ fn script_dir() -> &'static Path {
             .tempdir()
             .expect("failed to create fake-core script dir");
         for kind in SCRIPT_KINDS {
+            // The canned outgoing frame, pre-written next to each
+            // answering script ($0.canned in the script body).
+            std::fs::write(
+                dir.path().join(format!("core-{kind}.canned")),
+                canned_outgoing_frame(),
+            )
+            .unwrap();
             let path = dir.path().join(format!("core-{kind}"));
             std::fs::write(&path, script_body(kind)).unwrap();
             #[cfg(unix)]
@@ -196,13 +248,17 @@ fn fake_core(kind: &str) -> String {
     path.to_str().unwrap().to_owned()
 }
 
-/// `cat`: echoes every frame back byte-for-byte.
+/// `cat`: echoes frames byte-for-byte (handshake-only usable).
 fn echo_core() -> String {
     fake_core("echo")
 }
 
-/// Echoes frames (so the handshake is acked) and exits 3 after client
-/// EOF — exercises the teardown status contract.
+/// Acks the handshake, answers one request, then waits for EOF.
+fn ack_position_core() -> String {
+    fake_core("ack-position")
+}
+
+/// Same as ack-position but exits 3 after client EOF.
 fn bad_exit_core() -> String {
     fake_core("bad-exit")
 }
@@ -253,24 +309,28 @@ impl Harness {
 }
 
 #[tokio::test]
-async fn happy_path_handshake_ack_and_echo() {
-    let mut h = Harness::spawn(echo_core()).await;
+async fn happy_path_handshake_ack_and_answer() {
+    let mut h = Harness::spawn(ack_position_core()).await;
     let hs_line = handshake_line();
     h.send(&hs_line).await;
     assert_eq!(h.recv_exact(hs_line.len()).await, hs_line);
-    h.send("{\"text\":\"hi\"}\n").await;
-    assert_eq!(h.recv_exact(14).await, "{\"text\":\"hi\"}\n");
+    let req = client_request_json();
+    h.send(&req).await;
+    let reply = canned_outgoing_json();
+    assert_eq!(h.recv_exact(reply.len()).await, reply);
     h.finish().await.expect("session should end cleanly");
 }
 
 #[tokio::test]
 async fn in_flight_request_then_client_eof_ends_cleanly() {
-    let mut h = Harness::spawn(echo_core()).await;
+    let mut h = Harness::spawn(ack_position_core()).await;
     let hs_line = handshake_line();
     h.send(&hs_line).await;
     assert_eq!(h.recv_exact(hs_line.len()).await, hs_line);
-    h.send("{\"text\":\"bye\"}\n").await;
-    assert_eq!(h.recv_exact(15).await, "{\"text\":\"bye\"}\n");
+    let req = client_request_json();
+    h.send(&req).await;
+    let reply = canned_outgoing_json();
+    assert_eq!(h.recv_exact(reply.len()).await, reply);
     h.finish().await.expect("session should end cleanly");
 }
 
@@ -323,8 +383,10 @@ async fn core_bad_exit_status_is_loud_after_client_eof() {
     let hs_line = handshake_line();
     h.send(&hs_line).await;
     assert_eq!(h.recv_exact(hs_line.len()).await, hs_line);
-    h.send("{\"text\":\"y\"}\n").await;
-    assert_eq!(h.recv_exact(13).await, "{\"text\":\"y\"}\n");
+    let req = client_request_json();
+    h.send(&req).await;
+    let reply = canned_outgoing_json();
+    assert_eq!(h.recv_exact(reply.len()).await, reply);
     let err = h
         .finish()
         .await
@@ -341,8 +403,10 @@ async fn core_eof_mid_session_is_loud() {
     let hs_line = handshake_line();
     h.send(&hs_line).await;
     assert_eq!(h.recv_exact(hs_line.len()).await, hs_line);
-    h.send("{\"text\":\"hi\"}\n").await;
-    assert_eq!(h.recv_exact(14).await, "{\"text\":\"hi\"}\n");
+    let req = client_request_json();
+    h.send(&req).await;
+    let reply = canned_outgoing_json();
+    assert_eq!(h.recv_exact(reply.len()).await, reply);
     let task = h.task;
     let join = timeout(BUDGET, task)
         .await
@@ -378,9 +442,10 @@ async fn blank_line_is_a_loud_failure() {
 /// `pbjson` REJECTS unknown fields
 async fn unknown_fields_are_rejected_today() {
     let mut h = Harness::spawn(echo_core()).await;
-    h.send("{\"version\":1}\n").await;
-    assert_eq!(h.recv_exact(14).await, "{\"version\":1}\n");
-    h.send("{\"text\":\"hi\",\"bogus\":1}\n").await;
+    let hs_line = handshake_line();
+    h.send(&hs_line).await;
+    assert_eq!(h.recv_exact(hs_line.len()).await, hs_line);
+    h.send("{\"msgThreadsGet\":{},\"bogus\":1}\n").await;
     let err = h
         .finish()
         .await

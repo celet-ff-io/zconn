@@ -7,4 +7,4 @@ mod transcript;
 
 pub use error::CodecError;
 pub use peer::PublicKeySetJson;
-pub use transcript::{RowMeta, TranscriptRow};
+pub use transcript::{ResourceRow, Row, RowClaim, RowMeta, RowMsg, RowMsgRef, RowResourceRef};

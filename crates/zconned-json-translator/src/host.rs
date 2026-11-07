@@ -71,12 +71,12 @@ where
         .await
         .map_err(ClientPError::from)?
     {
-        log::trace!("client frame in (text of {} byte(s))", frame.text.len());
+        log::trace!("client frame in");
         to_core
             .write_frame(&frame)
             .await
             .map_err(CorePError::from)?;
-        log::trace!("frame out to core (text of {} byte(s))", frame.text.len());
+        log::trace!("frame out to core");
     }
     log::info!("client EOF; core stdin dropped (EOF to core)");
     Ok(())
@@ -95,12 +95,12 @@ where
         .await
         .map_err(CorePError::from)?
     {
-        log::trace!("core frame in (text of {} byte(s))", frame.text.len());
+        log::trace!("core frame in");
         to_client
             .write_frame(&frame)
             .await
             .map_err(ClientPError::from)?;
-        log::trace!("frame out to client (text of {} byte(s))", frame.text.len());
+        log::trace!("frame out to client");
     }
     Ok(())
 }

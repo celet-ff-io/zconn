@@ -28,6 +28,7 @@ sha3-kmac = "0.3.0"
 base64 = "0.23.1"
 dirs = "7.0.0"
 serde_json = "1.0.154"
+time = { version = "0.3", features = ["formatting", "parsing", "std"] }
 zeroize = "1.9.1"
 
 tap = "1.0.1"

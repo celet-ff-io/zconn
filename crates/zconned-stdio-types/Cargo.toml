@@ -11,6 +11,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+zconned-material = { path = "../zconned-material" }
 thiserror.workspace = true
 prost.workspace = true
 serde = { workspace = true, features = ["derive"] }

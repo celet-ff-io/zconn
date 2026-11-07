@@ -152,8 +152,9 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pretty_assertions::assert_eq;
-    use zconned_stdio_types::IncomingFrame;
+    use zconned_stdio_types::{IncomingFrame, MsgDraftCommit, MsgThreadsGet, incoming_frame::Method};
+
+    use super::LinkStruct;
 
     /// When a single `read_buf` delivers more than one complete frame,
     /// `Deframer::feed` returns after the first one and leaves the rest
@@ -161,21 +162,24 @@ mod tests {
     /// survive in a persistent buffer.
     #[tokio::test]
     async fn multiple_frames_in_one_read_buf_are_not_lost() {
-        let encode = |text: &str| {
-            IncomingFrame {
-                text: text.to_owned(),
-            }
-            .encode_length_delimited_to_vec()
-        };
-        let data = [encode("one"), encode("two")].concat();
+        let encode = |frame: IncomingFrame| frame.encode_length_delimited_to_vec();
+        let data = [
+            encode(IncomingFrame {
+                method: Some(Method::MsgThreadsGet(MsgThreadsGet {})),
+            }),
+            encode(IncomingFrame {
+                method: Some(Method::MsgDraftCommit(MsgDraftCommit {})),
+            }),
+        ]
+        .concat();
         // `&[u8]` hands its whole content over in a single `read_buf`.
         let mut link = LinkStruct::new(&data[..], tokio::io::sink());
 
         let first: IncomingFrame = link.read_frame().await.unwrap().unwrap();
-        assert_eq!(first.text, "one");
+        assert!(matches!(first.method, Some(Method::MsgThreadsGet(_))));
 
         let second: IncomingFrame = link.read_frame().await.unwrap().unwrap();
-        assert_eq!(second.text, "two");
+        assert!(matches!(second.method, Some(Method::MsgDraftCommit(_))));
 
         // Both frames consumed: EOF on an idle deframer is a clean end.
         let eof: Option<IncomingFrame> = link.read_frame().await.unwrap();

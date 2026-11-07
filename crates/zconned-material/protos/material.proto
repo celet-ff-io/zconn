@@ -1,38 +1,91 @@
 syntax = "proto3";
 
-// The message material (node model; Q12/Q13/Q14 landed 2026-10-21,
-// ts placement per the 2026-10-28 W-1 reversal).
+// The message material. The binding wire/storage contract lives in
+// the protocol doc; these comments state the technical facts.
+//
+// THE RECORD CARRIES POINTERS, NOT VALUES. A resource = a kinded
+// value pair, wholly addressed: every resource digest =
+// H(canonical proto3 Value{kind, data}) — the proto3 field encoding
+// (tag+len) is self-delimiting, hence injective. Values travel once
+// (the draft ops) and return as a Resource sidecar (Entry.values).
+//
+// Era numbering (SP-B): ver_major = 1. The pre-contract Node/Meta
+// placeholder shape never produced at-rest data, so it burns no era
+// number; the values-in-Msg interim shape (2026-11-05, never
+// released) likewise burns none.
 //
 // Contract: the transport bytes ARE the canonical bytes
 // (deterministic proto3 profile) — the digest machine hashes them
 // as received; the row renderer reads this structure via prost
 // fields and never the raw bytes.
+//
+// Evolution boundary conditions: fields are only ever added;
+// a field number is never reused or retyped; unset scalars occupy
+// zero bytes; one pinned encoder per schema version; old decoders
+// never re-encode. ver_minor governs additive schema events.
 package zconn.zconned.material;
 
 message Msg {
   // Version anchor: must stay field 1 of Msg; never descends into
-  // body.meta.
+  // a submessage.
   uint32 ver_major = 1;
   // Omitted on the wire when 0 (implicit presence).
   uint32 ver_minor = 2;
-  Node body = 3;
+  // Chain parents — CORE-stamped, never interface-supplied.
+  repeated MsgRef prev = 3;
+  // The ONE main content, by address. Kindless by design: a
+  // singleton slot has no name to look up — the kind lives inside
+  // the addressed resource (it is part of the digest).
+  ResourceRef content = 4;
+  // Open two-tier collection, order-free, KEYED BY KIND (the kind
+  // is explicit here: the set's duplicate-kind invariant must be
+  // verifiable without resolving values, and the kind is the
+  // lookup index — "find author, read its hash"):
+  // - kinds under vnd.zconn.* are core-attested: the core stamps
+  //   their values at commit (digest computed then);
+  // - vendor kinds are honest interface data the core transports
+  //   blindly.
+  repeated Claim claims = 5;
 }
 
-message Node {
-  Meta meta = 1;
-  string kind = 2;
-  bytes data = 3;
-}
-
-message Meta {
-  // Root-only: setting prev on a non-root node is invalid
-  // (fsck-checkable). Omitted on a genesis message.
-  repeated Ref prev = 1;
-}
-
-message Ref {
+// A pointer to a message. Era-relative: the digest is defined
+// against the referenced message's schema version, so the reference
+// carries it.
+message MsgRef {
   uint32 ver_major = 1;
+  // Omitted on the wire when 0 (implicit presence).
   uint32 ver_minor = 2;
   string algo = 3;
   bytes digest = 4;
+}
+
+// A pointer to a resource (a kinded value). No era, no kind: the
+// kind is inside the digest.
+message ResourceRef {
+  string algo = 1;
+  bytes digest = 2;
+}
+
+// A named pointer to a resource: the claims set's entry = the kind
+// (the key) + the value's address. The digest covers the kind too,
+// so a lying kind is detectable at resolve time. `ref` must be
+// present.
+message Claim {
+  string kind = 1;
+  ResourceRef ref = 2;
+}
+
+// A kinded value — the hash input of every resource.
+message Value {
+  string kind = 1;
+  bytes data = 2;
+}
+
+// A resolved resource: the value carrier on the wire (Entry.values
+// sidecar) — the store row's twin.
+message Resource {
+  string algo = 1;
+  bytes digest = 2;
+  string kind = 3;
+  bytes data = 4;
 }

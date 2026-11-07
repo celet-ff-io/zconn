@@ -12,6 +12,7 @@ rust-version.workspace = true
 
 [dependencies]
 prost.workspace = true
+zconned-crypto.workspace = true
 serde = { workspace = true, features = ["derive"] }
 pbjson = "0.9.0"
 pbjson-types = "0.9.0"
