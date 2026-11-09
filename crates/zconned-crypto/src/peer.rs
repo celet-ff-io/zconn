@@ -61,3 +61,13 @@ mod tests {
         assert_eq!(keys.fingerprint(), fingerprint::Fingerprint::of(&[3u8; 32]));
     }
 }
+
+/// Verify an Ed25519 signature strictly against a signing public
+/// half. `false` on any malformed input.
+pub fn verify_strict(sign_pub: &[u8; SIGN_PUB_LEN], msg: &[u8], sig: &[u8; 64]) -> bool {
+    let Ok(vk) = ed25519_dalek::VerifyingKey::from_bytes(sign_pub) else {
+        return false;
+    };
+    vk.verify_strict(msg, &ed25519_dalek::Signature::from_bytes(sig))
+        .is_ok()
+}

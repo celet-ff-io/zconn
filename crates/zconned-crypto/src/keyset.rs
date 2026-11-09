@@ -15,6 +15,9 @@ pub const MASTER_LEN: usize = 32;
 /// Signing-seed length: the Ed25519 secret-key size.
 const SIGN_SEED_LEN: usize = ed25519_dalek::SECRET_KEY_LENGTH;
 
+/// Signature length: the Ed25519 signature size.
+const SIGNATURE_LEN: usize = ed25519_dalek::SIGNATURE_LENGTH;
+
 /// Static-DH-key secret material length (curve requirement).
 const STATIC_DH_SECRET_LEN: usize = 32;
 
@@ -100,8 +103,8 @@ impl KeySet {
     pub fn from_master(master: &[u8; MASTER_LEN]) -> Self {
         let mut seed = [0u8; SIGN_SEED_LEN];
         let mut static_dh_secret = [0u8; STATIC_DH_SECRET_LEN];
-        kdf::derive(master, SIGN_LABEL, &mut seed);
-        kdf::derive(master, STATIC_DH_LABEL, &mut static_dh_secret);
+        kdf::derive(master, SIGN_LABEL, &[], &mut seed);
+        kdf::derive(master, STATIC_DH_LABEL, &[], &mut static_dh_secret);
         let keyset = Self {
             master: *master,
             derived: DerivedKeys {
@@ -117,6 +120,18 @@ impl KeySet {
     /// The static DH public half, as raw bytes.
     pub fn static_dh_public_bytes(&self) -> [u8; STATIC_DH_PUB_LEN] {
         self.derived.static_dh_public_bytes()
+    }
+
+    /// The static DH PRIVATE half, as raw bytes (establishment
+    /// input; the owner's own material).
+    pub fn static_dh_secret_bytes(&self) -> [u8; STATIC_DH_SECRET_LEN] {
+        self.derived.static_dh.to_bytes()
+    }
+
+    /// Sign a message with the identity's signing key.
+    pub fn sign(&self, msg: &[u8]) -> [u8; SIGNATURE_LEN] {
+        use ed25519_dalek::Signer;
+        self.derived.sign.sign(msg).to_bytes()
     }
 
     /// The fingerprint: SHA3-256 over the signing public key.

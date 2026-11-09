@@ -22,6 +22,7 @@ base64.workspace = true
 zconned-codec.workspace = true
 zconned-material.workspace = true
 zconned-crypto.workspace = true
+zconnor-mail-types.workspace = true
 pbjson-types = "0.9.0"
 getrandom.workspace = true
 dirs.workspace = true

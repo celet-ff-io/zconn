@@ -7,7 +7,7 @@ package zconn.zconned.mail;
 message Spk {
   bytes key = 1;
   bytes sig = 2;  // Sign(sign_priv, canonical(key, ver))
-  uint64 ver = 3;  // the owner's monotone epoch
+  uint32 ver = 3;  // the owner's monotone epoch
 }
 
 // One pool slot; the id locates the private key receiver-side.
