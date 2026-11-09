@@ -1,17 +1,20 @@
-//! End-to-end tests: the real core over in-memory duplex pipes,
+//! Full-flow tests: the real core over in-memory duplex pipes,
 //! driven by a protobuf-path client. The translator's framing has
 //! its own suite in zconned-json-translator.
 //!
 //! Coverage: handshake + the full op surface + the two-frame commit
-//! answer + the record store on disk + the EOF teardown contract.
+//! answer + the point-resolution verb + the record store on disk +
+//! the EOF teardown contract.
 
 use tokio::io::{BufReader, duplex};
 
+use zconned_crypto::DIGEST_ALGO;
 use zconned_io_link::{ReadLink, WriteLink, protobuf::LinkStruct as ProtobufLink};
+use zconned_material::{ResourceRef, resource_digest};
 use zconned_stdio_types::{
     Fresh, Handshake, IncomingFrame, MsgCursorSet, MsgDraftCommit, MsgDraftContentSet,
-    MsgThreadsGet, MsgThreadsLogGet, OutgoingFrame, PROTOCOL_VERSION, incoming_frame::Method,
-    outgoing_frame::Frame,
+    MsgThreadsGet, MsgThreadsLogGet, OutgoingFrame, PROTOCOL_VERSION, ResourceGet,
+    incoming_frame::Method, outgoing_frame::Frame,
 };
 
 type CoreLink = ProtobufLink<BufReader<tokio::io::DuplexStream>, tokio::io::DuplexStream>;
@@ -95,65 +98,70 @@ async fn happy_flow_fresh_to_commit_to_browse() {
     // fresh cursor.
     c.send(fresh_cursor()).await;
     let genesis = match c.recv().await {
-        Frame::PositionSet(p) => {
+        Frame::MsgCursorPush(p) => {
             assert_eq!(p.refs.len(), 1);
             p.refs[0].clone()
         }
-        other => panic!("expected position_set, got {other:?}"),
+        other => panic!("expected msg_cursor_push, got {other:?}"),
     };
 
-    // Stage content; the snapshot pushes back (an ANCHOR: kindless,
-    // digest = H(canonical Value{kind, data})).
+    // Stage content; the snapshot pushes back the plaintext pair
+    // (the draft domain has no digests).
     c.send(content_set("text/plain", b"hi")).await;
-    let content_digest = match c.recv().await {
-        Frame::MsgDraft(d) => {
-            let r = d.content.as_ref().expect("content staged");
-            assert_eq!(
-                r.digest,
-                zconned_material::resource_digest("text/plain", b"hi").to_vec()
-            );
-            r.digest.clone()
+    match c.recv().await {
+        Frame::MsgDraftPush(d) => {
+            let v = d.content.as_ref().expect("content staged");
+            assert_eq!(v.kind, "text/plain");
+            assert_eq!(v.data, b"hi");
         }
-        other => panic!("expected msg_draft, got {other:?}"),
-    };
+        other => panic!("expected msg_draft_push, got {other:?}"),
+    }
 
     // Commit: the two-frame answer — anchors + the values sidecar.
     c.send(method_frame(Some(Method::MsgDraftCommit(
         MsgDraftCommit {},
     ))))
     .await;
-    let (digest, resting) = match (c.recv().await, c.recv().await) {
-        (Frame::MsgAdded(a), Frame::MsgDraft(d)) => {
+    let (digest, content_digest, resting) = match (c.recv().await, c.recv().await) {
+        (Frame::MsgAdded(a), Frame::MsgDraftPush(d)) => {
             let entry = a.entry.as_ref().unwrap();
-            let msg = entry.msg.as_ref().unwrap();
-            assert_eq!(msg.content.as_ref().unwrap().digest, content_digest);
-            assert_eq!(msg.prev, vec![genesis.clone()]);
+            let content_digest = entry
+                .content
+                .as_ref()
+                .unwrap()
+                .r#ref
+                .as_ref()
+                .unwrap()
+                .digest
+                .clone();
+            assert_eq!(
+                content_digest,
+                resource_digest("text/plain", b"hi").to_vec()
+            );
+            assert_eq!(entry.prev, vec![genesis.clone()]);
             let meta = entry.meta.as_ref().unwrap();
             assert!(meta.ts.is_some());
-            // The sidecar carries the resolved value.
-            let value = entry
-                .values
-                .iter()
-                .find(|r| r.kind == "text/plain")
-                .expect("the content value rides the sidecar");
-            assert_eq!(value.data, b"hi");
-            assert_eq!(value.digest, content_digest);
-            (hex(&meta.digest), d)
+            // The value rides the slot, fused.
+            assert_eq!(
+                entry.content.as_ref().unwrap().value.as_ref().unwrap().data,
+                b"hi"
+            );
+            (hex(&meta.digest), content_digest, d)
         }
-        other => panic!("expected msg_added + msg_draft, got {other:?}"),
+        other => panic!("expected msg_added + msg_draft_push, got {other:?}"),
     };
     assert_eq!(digest.len(), 64);
     assert!(resting.content.is_none() && resting.claims.is_empty());
 
-    // Browse: threads -> log (values reconstructed from resources).
+    // Browse: threads -> log (values reconstructed, fused in place).
     c.send(method_frame(Some(Method::MsgThreadsGet(MsgThreadsGet {}))))
         .await;
     match c.recv().await {
-        Frame::MsgThreads(t) => {
+        Frame::MsgThreadsPush(t) => {
             assert_eq!(t.threads.len(), 1);
             assert_eq!(t.threads[0].thread, Some(genesis.clone()));
         }
-        other => panic!("expected msg_threads, got {other:?}"),
+        other => panic!("expected msg_threads_push, got {other:?}"),
     }
     c.send(method_frame(Some(Method::MsgThreadsLogGet(
         MsgThreadsLogGet {
@@ -162,19 +170,44 @@ async fn happy_flow_fresh_to_commit_to_browse() {
     ))))
     .await;
     match c.recv().await {
-        Frame::MsgThreadsLog(l) => {
+        Frame::MsgThreadsLogPush(l) => {
             assert_eq!(l.entries.len(), 1);
             let entry = &l.entries[0];
-            let msg = entry.msg.as_ref().unwrap();
-            assert_eq!(msg.content.as_ref().unwrap().digest, content_digest);
-            let value = entry
-                .values
-                .iter()
-                .find(|r| r.kind == "text/plain")
-                .expect("browsing reconstructs the value via the sidecar");
-            assert_eq!(value.data, b"hi");
+            let content = entry.content.as_ref().unwrap();
+            assert_eq!(content.r#ref.as_ref().unwrap().digest, content_digest);
+            assert_eq!(content.value.as_ref().unwrap().data, b"hi");
         }
-        other => panic!("expected msg_threads_log, got {other:?}"),
+        other => panic!("expected msg_threads_log_push, got {other:?}"),
+    }
+
+    // Point-resolve the content address: hit + miss.
+    c.send(method_frame(Some(Method::ResourceGet(ResourceGet {
+        r#ref: Some(ResourceRef {
+            algo: DIGEST_ALGO.to_owned(),
+            digest: content_digest.clone(),
+        }),
+    }))))
+    .await;
+    match c.recv().await {
+        Frame::ResourcePush(p) => {
+            assert_eq!(p.r#ref.as_ref().unwrap().digest, content_digest);
+            assert_eq!(p.value.as_ref().unwrap().data, b"hi");
+        }
+        other => panic!("expected resource_push, got {other:?}"),
+    }
+    c.send(method_frame(Some(Method::ResourceGet(ResourceGet {
+        r#ref: Some(ResourceRef {
+            algo: DIGEST_ALGO.to_owned(),
+            digest: vec![7u8; 32],
+        }),
+    }))))
+    .await;
+    match c.recv().await {
+        Frame::ResourcePush(p) => {
+            assert_eq!(p.r#ref.as_ref().unwrap().digest, vec![7u8; 32]);
+            assert!(p.value.is_none(), "the absent value = the stated miss");
+        }
+        other => panic!("expected resource_push, got {other:?}"),
     }
 
     // EOF ends the session cleanly (exit 0): dropping the client
@@ -201,7 +234,7 @@ async fn commit_before_cursor_is_a_loud_error() {
 
     // The session lives: the flow still works afterwards.
     c.send(fresh_cursor()).await;
-    assert!(matches!(c.recv().await, Frame::PositionSet(_)));
+    assert!(matches!(c.recv().await, Frame::MsgCursorPush(_)));
 
     drop(c);
     assert!(task.await.unwrap().is_ok());

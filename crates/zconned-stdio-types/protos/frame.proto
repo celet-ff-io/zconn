@@ -5,10 +5,10 @@ syntax = "proto3";
 // append/clear/get); those field numbers die with it.
 //
 // The oneof carries method messages (rpc term: json-rpc/LSP
-// "method"). Requests = imperative verbs; statements = past-tense;
-// answers = the bare object noun; the msg_draft snapshot is
-// dual-role. Dispatch: statements anytime; answers pair with the
-// pending request; an all-default frame gets an error, not death.
+// "method"). Requests = imperative verbs; events = past-tense
+// statements; deliveries = Push (dual-role: they pair with a
+// pending request when one exists, arrive on their own otherwise).
+// An all-default frame gets an error, not death.
 //
 // Version discipline: fields are only ever added; a wire-breaking
 // change bumps PROTOCOL_VERSION.
@@ -34,7 +34,13 @@ message IncomingFrame {
     MsgDraftCommit msg_draft_commit = 8;
     MsgThreadsGet msg_threads_get = 9;
     MsgThreadsLogGet msg_threads_log_get = 10;
+    ResourceGet resource_get = 11;
   }
+}
+
+// Point-resolve one resource address.
+message ResourceGet {
+  material.ResourceRef ref = 1;
 }
 
 // Position the compose cursor: either lock the exact branch/merge
@@ -84,11 +90,12 @@ message MsgThreadsLogGet {
 message OutgoingFrame {
   oneof frame {
     MsgAdded msg_added = 1;
-    PositionSet position_set = 2;
-    MsgDraft msg_draft = 3;
-    MsgThreads msg_threads = 4;
-    MsgThreadsLog msg_threads_log = 5;
+    MsgCursorPush msg_cursor_push = 2;
+    MsgDraftPush msg_draft_push = 3;
+    MsgThreadsPush msg_threads_push = 4;
+    MsgThreadsLogPush msg_threads_log_push = 5;
     Error error = 6;
+    ResourcePush resource_push = 7;
   }
 }
 
@@ -99,21 +106,24 @@ message MsgAdded {
 }
 
 // Cursor-set receipt; future: arrival-driven cursor moves.
-message PositionSet {
+message MsgCursorPush {
   repeated material.MsgRef refs = 1;
 }
 
-// The draft's working state (content + claim values). Pushed after
-// every staging op and the msg_draft_get answer (dual-role).
-message MsgDraft {
-  material.ResourceRef content = 1;
-  repeated material.Claim claims = 2;
+// The draft's working state: the staged plaintext (kind, data)
+// pairs themselves. The draft domain has no identity, so no digests
+// exist yet (registry kinds carry empty data until the commit stamps
+// them). Pushed after every staging op and the msg_draft_get answer
+// (dual-role).
+message MsgDraftPush {
+  material.Value content = 1;
+  repeated material.Value claims = 2;
 }
 
 // Thread list: one ThreadEntry per thread (a wrapper NOW — growth
 // = additive fields; a bare repeated Ref list could never enrich
 // without a breaking type change).
-message MsgThreads {
+message MsgThreadsPush {
   repeated ThreadEntry threads = 1;
 }
 
@@ -121,20 +131,43 @@ message ThreadEntry {
   material.MsgRef thread = 1;
 }
 
+// The answer: the resolved pair. value absent = not held; the ref
+// echo lets the requester match the answer to its ask.
+message ResourcePush {
+  material.ResourceRef ref = 1;
+  material.Value value = 2;
+}
+
 // A thread's log: the wire unit per message. NOT the TranscriptRow
 // file unit (same facts, different medium — the row adds the
 // contentHash/resource anchors and hex notation).
-message MsgThreadsLog {
+message MsgThreadsLogPush {
   repeated Entry entries = 1;
 }
 
+// The c->i message form: the anchor structure with the resolved
+// values fused in — every fact appears once. A slot = the address
+// (always present) plus the value (present iff the core holds it;
+// its absence IS the missing statement, the digest stays here).
+// The claims list mirrors the record's claim roster one-to-one.
 message Entry {
-  material.Msg msg = 1;
-  RowMeta meta = 2;
-  // The referenced values, resolved (commit return: the stamped
-  // registry values; browsing: reconstruction). Consumers without
-  // the need ignore them.
-  repeated material.Resource values = 3;
+  uint32 ver_major = 1;
+  uint32 ver_minor = 2;
+  repeated material.MsgRef prev = 3;
+  RowMeta meta = 4;
+  ResolvedSlot content = 5;
+  repeated ResolvedClaim claims = 6;
+}
+
+message ResolvedSlot {
+  material.ResourceRef ref = 1;
+  material.Value value = 2;
+}
+
+message ResolvedClaim {
+  string kind = 1;
+  material.ResourceRef ref = 2;
+  material.Value value = 3;
 }
 
 // Observer facts on the wire: local record time + the identity

@@ -8,14 +8,12 @@ use std::collections::HashMap;
 use crate::store::{CommitValues, Store, ThreadId};
 use prost::Message as _;
 use zconned_crypto::{DIGEST_ALGO, DIGEST_LEN};
-use zconned_material::{
-    CLAIM_KIND_TS, Claim, Msg, MsgRef, Resource, ResourceRef, Value, resource_digest,
-};
+use zconned_material::{CLAIM_KIND_TS, Claim, Msg, MsgRef, ResourceRef, Value, resource_digest};
 use zconned_stdio_types::{
-    Entry, Error as WireError, Fresh, IncomingFrame, MsgAdded, MsgCursorSet, MsgDraft,
-    MsgDraftClaimsAdd, MsgDraftClaimsRemove, MsgDraftContentSet, MsgThreads, MsgThreadsLog,
-    MsgThreadsLogGet, OutgoingFrame, PositionSet, RowMeta, ThreadEntry, incoming_frame::Method,
-    outgoing_frame::Frame,
+    Entry, Error as WireError, Fresh, IncomingFrame, MsgAdded, MsgCursorPush, MsgCursorSet,
+    MsgDraftClaimsAdd, MsgDraftClaimsRemove, MsgDraftContentSet, MsgDraftPush, MsgThreadsLogGet,
+    MsgThreadsLogPush, MsgThreadsPush, OutgoingFrame, ResolvedClaim, ResolvedSlot, ResourceGet,
+    ResourcePush, RowMeta, ThreadEntry, incoming_frame::Method, outgoing_frame::Frame,
 };
 
 /// Compose cursor: locked refs (branch/merge base) or a fresh
@@ -45,30 +43,12 @@ struct Draft {
 }
 
 impl Draft {
-    /// The anchor projection (the snapshot the interface sees).
-    fn snapshot(&self) -> MsgDraft {
-        MsgDraft {
-            content: self.content.as_ref().map(|b| ResourceRef {
-                algo: DIGEST_ALGO.to_owned(),
-                digest: resource_digest(&b.kind, &b.data).to_vec(),
-            }),
-            claims: self
-                .claims
-                .iter()
-                .map(|b| Claim {
-                    kind: b.kind.clone(),
-                    r#ref: Some(ResourceRef {
-                        algo: DIGEST_ALGO.to_owned(),
-                        // Empty data = a pending registry stamp (the
-                        // digest cannot exist before the value does).
-                        digest: if b.data.is_empty() {
-                            Vec::new()
-                        } else {
-                            resource_digest(&b.kind, &b.data).to_vec()
-                        },
-                    }),
-                })
-                .collect(),
+    /// The wire snapshot: the staged plaintext pairs themselves (no
+    /// digests — the draft domain has no identity pre-commit).
+    fn snapshot(&self) -> MsgDraftPush {
+        MsgDraftPush {
+            content: self.content.clone(),
+            claims: self.claims.clone(),
         }
     }
 }
@@ -141,7 +121,7 @@ impl Session {
                     Ok(threads) => threads,
                     Err(e) => return vec![self.internal(&e)],
                 };
-                vec![reply(Frame::MsgThreads(MsgThreads {
+                vec![reply(Frame::MsgThreadsPush(MsgThreadsPush {
                     threads: threads
                         .iter()
                         .map(|t| ThreadEntry {
@@ -151,6 +131,7 @@ impl Session {
                 }))]
             }
             Method::MsgThreadsLogGet(MsgThreadsLogGet { thread }) => self.thread_log(thread),
+            Method::ResourceGet(ResourceGet { r#ref }) => self.resource_get(r#ref),
         }
     }
 
@@ -171,7 +152,7 @@ impl Session {
                 // the lock is intent, not a lookup.
                 let refs = at;
                 self.cursor = Some(Cursor::At(refs.clone()));
-                vec![reply(Frame::PositionSet(PositionSet { refs }))]
+                vec![reply(Frame::MsgCursorPush(MsgCursorPush { refs }))]
             }
             (false, true) => {
                 // Core-side entropy: the interface never invents the
@@ -187,7 +168,7 @@ impl Session {
                     digest: digest.to_vec(),
                 };
                 self.cursor = Some(Cursor::Fresh(r.clone()));
-                vec![reply(Frame::PositionSet(PositionSet { refs: vec![r] }))]
+                vec![reply(Frame::MsgCursorPush(MsgCursorPush { refs: vec![r] }))]
             }
         }
     }
@@ -254,7 +235,7 @@ impl Session {
         };
         let bytes = msg.encode_to_vec();
         let thread = self.resolve_thread(&msg.prev);
-        let (row, resolved) = match self
+        let (row, _) = match self
             .store
             .commit(&bytes, &msg, &values, &thread, now.clone())
         {
@@ -269,21 +250,38 @@ impl Session {
         let Ok(ts) = rfc3339_to_pbjson(&now) else {
             return vec![self.internal(&"clock produced an unparsable timestamp")];
         };
+        // The fused wire form: the anchor's refs + the committed
+        // values, one fact per field.
         let entry = Entry {
-            msg: Some(msg.clone()),
+            ver_major: msg.ver_major,
+            ver_minor: msg.ver_minor,
+            prev: msg.prev.clone(),
             meta: Some(RowMeta {
                 ts: Some(ts),
                 algo: row.meta.algo.clone(),
                 digest: crate::store::hex_to_bytes(&row.meta.digest).unwrap_or_default(),
             }),
-            values: resolved,
+            content: Some(ResolvedSlot {
+                r#ref: msg.content.clone(),
+                value: Some(content),
+            }),
+            claims: msg
+                .claims
+                .iter()
+                .zip(claims.iter())
+                .map(|(anchor, v)| ResolvedClaim {
+                    kind: anchor.kind.clone(),
+                    r#ref: anchor.r#ref.clone(),
+                    value: Some(v.clone()),
+                })
+                .collect(),
         };
 
         // The resting state: the draft is consumed by the commit.
         self.draft = Draft::default();
         vec![
             reply(Frame::MsgAdded(MsgAdded { entry: Some(entry) })),
-            reply(Frame::MsgDraft(MsgDraft {
+            reply(Frame::MsgDraftPush(MsgDraftPush {
                 content: None,
                 claims: Vec::new(),
             })),
@@ -324,11 +322,31 @@ impl Session {
             .iter()
             .map(|row| reconstruct(row, &resources))
             .collect();
-        vec![reply(Frame::MsgThreadsLog(MsgThreadsLog { entries }))]
+        vec![reply(Frame::MsgThreadsLogPush(MsgThreadsLogPush {
+            entries,
+        }))]
+    }
+
+    fn resource_get(&self, r: Option<zconned_material::ResourceRef>) -> Vec<OutgoingFrame> {
+        let Some(r) = r else {
+            return vec![self.error("malformed_frame", "resource method carries no ref")];
+        };
+        let row = match self.store.find_resource(&r.digest) {
+            Ok(row) => row,
+            Err(e) => return vec![self.internal(&e)],
+        };
+        let value = row.map(|row| Value {
+            kind: row.kind,
+            data: crate::store::base64_decode(&row.data).unwrap_or_default(),
+        });
+        vec![reply(Frame::ResourcePush(ResourcePush {
+            r#ref: Some(r),
+            value,
+        }))]
     }
 
     fn draft_reply(&self) -> OutgoingFrame {
-        reply(Frame::MsgDraft(self.draft.snapshot()))
+        reply(Frame::MsgDraftPush(self.draft.snapshot()))
     }
 
     fn error(&self, code: &str, message: &str) -> OutgoingFrame {
@@ -345,62 +363,21 @@ impl Session {
 }
 
 /// Reconstruct a wire entry from an anchor row + the thread's
-/// resource rows. A missing resource = the anchor stays, the
-/// sidecar omits it.
+/// resource rows: the anchor keeps every ref, each value rides its
+/// own slot; a missing resource = the value field ABSENT (stated,
+/// never implied).
 fn reconstruct(row: &zconned_codec::Row, resources: &[zconned_codec::ResourceRow]) -> Entry {
-    let lookup = |digest_hex: &str| -> Option<Resource> {
+    let lookup = |digest_hex: &str| -> Option<Value> {
         resources
             .iter()
             .find(|r| r.digest == digest_hex)
-            .map(|r| Resource {
-                algo: r.algo.clone(),
-                digest: crate::store::hex_to_bytes(&r.digest).unwrap_or_default(),
+            .map(|r| Value {
                 kind: r.kind.clone(),
                 // The row's data = the base64 projection; resolve to
                 // the raw bytes.
                 data: crate::store::base64_decode(&r.data).unwrap_or_default(),
             })
     };
-    let msg = Msg {
-        ver_major: row.msg.ver_major,
-        ver_minor: row.msg.ver_minor,
-        prev: row
-            .msg
-            .prev
-            .iter()
-            .map(|r| MsgRef {
-                ver_major: r.ver_major,
-                ver_minor: r.ver_minor,
-                algo: r.algo.clone(),
-                digest: crate::store::hex_to_bytes(&r.digest).unwrap_or_default(),
-            })
-            .collect(),
-        content: Some(ResourceRef {
-            algo: row.msg.content.algo.clone(),
-            digest: crate::store::hex_to_bytes(&row.msg.content.digest).unwrap_or_default(),
-        }),
-        claims: row
-            .msg
-            .claims
-            .iter()
-            .map(|c| Claim {
-                kind: c.kind.clone(),
-                r#ref: Some(ResourceRef {
-                    algo: c.ref_.algo.clone(),
-                    digest: crate::store::hex_to_bytes(&c.ref_.digest).unwrap_or_default(),
-                }),
-            })
-            .collect(),
-    };
-    let mut values = Vec::new();
-    if let Some(v) = lookup(&row.msg.content.digest) {
-        values.push(v);
-    }
-    for c in &row.msg.claims {
-        if let Some(v) = lookup(&c.ref_.digest) {
-            values.push(v);
-        }
-    }
     let meta = RowMeta {
         ts: time::OffsetDateTime::parse(
             &row.meta.ts,
@@ -415,9 +392,40 @@ fn reconstruct(row: &zconned_codec::Row, resources: &[zconned_codec::ResourceRow
         digest: crate::store::hex_to_bytes(&row.meta.digest).unwrap_or_default(),
     };
     Entry {
-        msg: Some(msg),
+        ver_major: row.msg.ver_major,
+        ver_minor: row.msg.ver_minor,
+        prev: row
+            .msg
+            .prev
+            .iter()
+            .map(|r| MsgRef {
+                ver_major: r.ver_major,
+                ver_minor: r.ver_minor,
+                algo: r.algo.clone(),
+                digest: crate::store::hex_to_bytes(&r.digest).unwrap_or_default(),
+            })
+            .collect(),
         meta: Some(meta),
-        values,
+        content: Some(ResolvedSlot {
+            r#ref: Some(ResourceRef {
+                algo: row.msg.content.algo.clone(),
+                digest: crate::store::hex_to_bytes(&row.msg.content.digest).unwrap_or_default(),
+            }),
+            value: lookup(&row.msg.content.digest),
+        }),
+        claims: row
+            .msg
+            .claims
+            .iter()
+            .map(|c| ResolvedClaim {
+                kind: c.kind.clone(),
+                r#ref: Some(ResourceRef {
+                    algo: c.ref_.algo.clone(),
+                    digest: crate::store::hex_to_bytes(&c.ref_.digest).unwrap_or_default(),
+                }),
+                value: lookup(&c.ref_.digest),
+            })
+            .collect(),
     }
 }
 
@@ -447,6 +455,7 @@ mod tests {
     use zconned_stdio_types::{
         Fresh, MsgCursorSet, MsgDraftClaimsAdd, MsgDraftClaimsClear, MsgDraftClaimsRemove,
         MsgDraftCommit, MsgDraftContentSet, MsgDraftGet, MsgThreadsGet, MsgThreadsLogGet,
+        ResourceGet,
     };
 
     fn temp_session() -> (Session, tempfile::TempDir) {
@@ -513,73 +522,66 @@ mod tests {
     fn full_compose_flow_fresh_to_commit() {
         let (mut s, _dir) = temp_session();
 
-        // fresh -> PositionSet{refs: [random]}
+        // fresh -> msg_cursor_push{refs: [random]}
         let frames = s.handle(fresh_cursor_set());
         assert_eq!(frames.len(), 1);
         let genesis = match first(&frames) {
-            Frame::PositionSet(p) => p.refs[0].clone(),
-            other => panic!("expected position_set, got {other:?}"),
+            Frame::MsgCursorPush(p) => p.refs[0].clone(),
+            other => panic!("expected msg_cursor_push, got {other:?}"),
         };
         assert_eq!(genesis.algo, DIGEST_ALGO);
         assert_eq!(genesis.digest.len(), DIGEST_LEN);
 
-        // stage content + claims; the snapshot = ANCHORS
+        // stage content + claims; the snapshot = the plaintext pairs
         let frames = s.handle(content_set("text/plain", "hi"));
         match first(&frames) {
-            Frame::MsgDraft(d) => {
-                let content = d.content.as_ref().unwrap();
-                // The anchor is kindless BY TYPE (no kind field): the
-                // kind lives inside the addressed resource.
-                assert_eq!(
-                    content.digest,
-                    resource_digest("text/plain", b"hi").to_vec()
-                );
+            Frame::MsgDraftPush(d) => {
+                assert_eq!(d.content.as_ref().unwrap().kind, "text/plain");
+                assert_eq!(d.content.as_ref().unwrap().data, b"hi");
                 assert!(d.claims.is_empty());
             }
-            other => panic!("expected msg_draft, got {other:?}"),
+            other => panic!("expected msg_draft_push, got {other:?}"),
         }
         let frames = s.handle(claims_add("vnd.example.author", Some("KEY-1")));
         match first(&frames) {
-            Frame::MsgDraft(d) => {
+            Frame::MsgDraftPush(d) => {
                 assert_eq!(d.claims.len(), 1);
                 assert_eq!(d.claims[0].kind, "vnd.example.author");
-                assert_eq!(
-                    d.claims[0].r#ref.as_ref().unwrap().digest,
-                    resource_digest("vnd.example.author", b"KEY-1").to_vec()
-                );
+                assert_eq!(d.claims[0].data, b"KEY-1");
             }
-            other => panic!("expected msg_draft, got {other:?}"),
+            other => panic!("expected msg_draft_push, got {other:?}"),
         }
-        // The registry kind stages PENDING: empty digest.
+        // The registry kind stages PENDING: honest empty data, no digest.
         let frames = s.handle(claims_add(CLAIM_KIND_TS, None));
         match first(&frames) {
-            Frame::MsgDraft(d) => {
+            Frame::MsgDraftPush(d) => {
                 assert_eq!(d.claims.len(), 2);
                 let ts = d.claims.iter().find(|c| c.kind == CLAIM_KIND_TS).unwrap();
-                assert!(
-                    ts.r#ref.as_ref().unwrap().digest.is_empty(),
-                    "registry value unstaged"
-                );
+                assert!(ts.data.is_empty(), "registry value unstaged");
             }
-            other => panic!("expected msg_draft, got {other:?}"),
+            other => panic!("expected msg_draft_push, got {other:?}"),
         }
 
-        // commit -> msg_added(entry + values sidecar) + resting draft
+        // commit -> msg_added(fused entry) + resting draft
         let frames = s.handle(commit());
         assert_eq!(frames.len(), 2);
         let (added, resting) = match (first(&frames), frames[1].frame.as_ref().unwrap()) {
-            (Frame::MsgAdded(a), Frame::MsgDraft(d)) => (a, d),
-            other => panic!("expected msg_added + msg_draft, got {other:?}"),
+            (Frame::MsgAdded(a), Frame::MsgDraftPush(d)) => (a, d),
+            other => panic!("expected msg_added + msg_draft_push, got {other:?}"),
         };
         let entry = added.entry.as_ref().unwrap();
-        let msg = entry.msg.as_ref().unwrap();
-        assert_eq!(msg.prev, vec![genesis.clone()]);
-        let content = msg.content.as_ref().unwrap();
+        assert_eq!(entry.prev, vec![genesis.clone()]);
+        // The content slot: the anchor's digest + the value, fused.
+        let content = entry.content.as_ref().unwrap();
         assert_eq!(
-            content.digest,
+            content.r#ref.as_ref().unwrap().digest,
             resource_digest("text/plain", b"hi").to_vec()
         );
-        let ts = msg
+        assert_eq!(content.value.as_ref().unwrap().kind, "text/plain");
+        assert_eq!(content.value.as_ref().unwrap().data, b"hi");
+        // The claims list = the record's roster (author + ts).
+        assert_eq!(entry.claims.len(), 2);
+        let ts = entry
             .claims
             .iter()
             .find(|c| c.kind == CLAIM_KIND_TS)
@@ -588,28 +590,14 @@ mod tests {
             !ts.r#ref.as_ref().unwrap().digest.is_empty(),
             "registry digest computed at commit"
         );
-        // Self-consistency: the anchor's digest = H(the sidecar value).
-        let stamped_value = entry
-            .values
-            .iter()
-            .find(|r| r.kind == CLAIM_KIND_TS)
-            .expect("the stamped value rides the sidecar");
+        // Self-consistency: the slot's digest = H(the slot's value).
         assert_eq!(
             ts.r#ref.as_ref().unwrap().digest,
-            resource_digest(CLAIM_KIND_TS, &stamped_value.data).to_vec()
+            resource_digest(CLAIM_KIND_TS, &ts.value.as_ref().unwrap().data).to_vec()
         );
         let meta = entry.meta.as_ref().unwrap();
         assert_eq!(meta.algo, DIGEST_ALGO);
         assert!(meta.ts.is_some());
-        // The sidecar = the resolved resources (content + stamped ts;
-        // NOT the pending vendor value it never had).
-        assert!(
-            entry
-                .values
-                .iter()
-                .any(|r| r.kind == "text/plain" && r.data == b"hi")
-        );
-        assert!(entry.values.iter().any(|r| r.kind == CLAIM_KIND_TS));
         assert!(resting.content.is_none(), "resting draft: content cleared");
         assert!(resting.claims.is_empty(), "resting draft: claims cleared");
 
@@ -655,15 +643,11 @@ mod tests {
             method: Some(Method::MsgDraftGet(MsgDraftGet {})),
         });
         match first(&frames) {
-            Frame::MsgDraft(d) => {
+            Frame::MsgDraftPush(d) => {
                 assert_eq!(d.claims.len(), 1);
-                assert_eq!(
-                    d.claims[0].r#ref.as_ref().unwrap().digest,
-                    resource_digest("vnd.example.a", b"1").to_vec(),
-                    "first add wins (ensure-present)"
-                );
+                assert_eq!(d.claims[0].data, b"1", "first add wins (ensure-present)");
             }
-            other => panic!("expected msg_draft, got {other:?}"),
+            other => panic!("expected msg_draft_push, got {other:?}"),
         }
     }
 
@@ -683,15 +667,15 @@ mod tests {
             })),
         });
         match first(&frames) {
-            Frame::MsgDraft(d) => assert_eq!(d.claims.len(), 1),
-            other => panic!("expected msg_draft, got {other:?}"),
+            Frame::MsgDraftPush(d) => assert_eq!(d.claims.len(), 1),
+            other => panic!("expected msg_draft_push, got {other:?}"),
         }
         let frames = s.handle(IncomingFrame {
             method: Some(Method::MsgDraftClaimsClear(MsgDraftClaimsClear {})),
         });
         match first(&frames) {
-            Frame::MsgDraft(d) => assert!(d.claims.is_empty()),
-            other => panic!("expected msg_draft, got {other:?}"),
+            Frame::MsgDraftPush(d) => assert!(d.claims.is_empty()),
+            other => panic!("expected msg_draft_push, got {other:?}"),
         }
     }
 
@@ -704,25 +688,21 @@ mod tests {
         let frames = s.handle(commit());
         match first(&frames) {
             Frame::MsgAdded(a) => {
-                let msg = a.entry.as_ref().unwrap().msg.as_ref().unwrap();
-                let ts = msg.claims.iter().find(|c| c.kind == CLAIM_KIND_TS).unwrap();
+                let entry = a.entry.as_ref().unwrap();
+                let ts = entry
+                    .claims
+                    .iter()
+                    .find(|c| c.kind == CLAIM_KIND_TS)
+                    .unwrap();
                 assert_ne!(
                     ts.r#ref.as_ref().unwrap().digest,
                     resource_digest(CLAIM_KIND_TS, b"FAKE").to_vec(),
                     "interface-supplied value overwritten"
                 );
-                // The stamped resource = a real RFC3339 timestamp.
-                let stamped = a
-                    .entry
-                    .as_ref()
-                    .unwrap()
-                    .values
-                    .iter()
-                    .find(|r| r.kind == CLAIM_KIND_TS)
-                    .unwrap();
+                // The stamped value = a real RFC3339 timestamp.
                 assert!(
                     time::OffsetDateTime::parse(
-                        std::str::from_utf8(&stamped.data).unwrap(),
+                        std::str::from_utf8(&ts.value.as_ref().unwrap().data).unwrap(),
                         &time::format_description::well_known::Rfc3339
                     )
                     .is_ok()
@@ -743,15 +723,14 @@ mod tests {
         };
         let frames = s.handle(at_cursor_set(vec![parent.clone()]));
         match first(&frames) {
-            Frame::PositionSet(p) => assert_eq!(p.refs, vec![parent.clone()]),
-            other => panic!("expected position_set, got {other:?}"),
+            Frame::MsgCursorPush(p) => assert_eq!(p.refs, vec![parent.clone()]),
+            other => panic!("expected msg_cursor_push, got {other:?}"),
         }
         s.handle(content_set("text/plain", "x"));
         let frames = s.handle(commit());
         match first(&frames) {
             Frame::MsgAdded(a) => {
-                let msg = a.entry.as_ref().unwrap().msg.as_ref().unwrap();
-                assert_eq!(msg.prev, vec![parent.clone()]);
+                assert_eq!(a.entry.as_ref().unwrap().prev, vec![parent.clone()]);
             }
             other => panic!("expected msg_added, got {other:?}"),
         }
@@ -790,11 +769,11 @@ mod tests {
         expect_error(&s.handle(IncomingFrame { method: None }), "internal");
         // The session lives: a normal op still works.
         let frames = s.handle(fresh_cursor_set());
-        assert!(matches!(first(&frames), Frame::PositionSet(_)));
+        assert!(matches!(first(&frames), Frame::MsgCursorPush(_)));
     }
 
     #[test]
-    fn threads_get_and_log_get_roundtrip_via_the_sidecar() {
+    fn threads_get_and_log_get_roundtrip() {
         let (mut s, _dir) = temp_session();
         s.handle(fresh_cursor_set());
         s.handle(content_set("text/plain", "hello"));
@@ -805,8 +784,8 @@ mod tests {
             method: Some(Method::MsgThreadsGet(MsgThreadsGet {})),
         });
         let thread_ref = match first(&frames) {
-            Frame::MsgThreads(t) => t.threads[0].thread.clone().unwrap(),
-            other => panic!("expected msg_threads, got {other:?}"),
+            Frame::MsgThreadsPush(t) => t.threads[0].thread.clone().unwrap(),
+            other => panic!("expected msg_threads_push, got {other:?}"),
         };
 
         let frames = s.handle(IncomingFrame {
@@ -815,32 +794,132 @@ mod tests {
             })),
         });
         match first(&frames) {
-            Frame::MsgThreadsLog(l) => {
+            Frame::MsgThreadsLogPush(l) => {
                 assert_eq!(l.entries.len(), 1);
                 let entry = &l.entries[0];
-                // The msg = anchors; the values = the sidecar.
-                let msg = entry.msg.as_ref().unwrap();
-                let values = &entry.values;
-                assert!(
-                    values
-                        .iter()
-                        .any(|r| r.kind == "text/plain" && r.data == b"hello")
-                );
-                assert!(
-                    values
-                        .iter()
-                        .any(|r| r.kind == "vnd.example.author" && r.data == b"KEY-1")
-                );
-                // Every sidecar value's digest = its anchor's digest.
-                let content_digest = &msg.content.as_ref().unwrap().digest;
-                assert!(
-                    values
-                        .iter()
-                        .any(|r| r.kind == "text/plain" && r.digest == *content_digest)
+                // The roster mirrors the record (one author claim).
+                assert_eq!(entry.claims.len(), 1);
+                // Values fused in position: no matching, no sidecar.
+                let content = entry.content.as_ref().unwrap();
+                assert_eq!(content.value.as_ref().unwrap().kind, "text/plain");
+                assert_eq!(content.value.as_ref().unwrap().data, b"hello");
+                let author = entry
+                    .claims
+                    .iter()
+                    .find(|c| c.kind == "vnd.example.author")
+                    .unwrap();
+                assert_eq!(author.value.as_ref().unwrap().data, b"KEY-1");
+                // Every slot's digest = H(its own value).
+                assert_eq!(
+                    content.r#ref.as_ref().unwrap().digest,
+                    resource_digest("text/plain", b"hello").to_vec()
                 );
             }
-            other => panic!("expected msg_threads_log, got {other:?}"),
+            other => panic!("expected msg_threads_log_push, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_missing_resource_is_stated_by_the_absent_value_key() {
+        let (mut s, dir) = temp_session();
+        let genesis = match first(&s.handle(fresh_cursor_set())) {
+            Frame::MsgCursorPush(p) => p.refs[0].clone(),
+            other => panic!("expected msg_cursor_push, got {other:?}"),
+        };
+        s.handle(content_set("text/plain", "gone"));
+        s.handle(claims_add(CLAIM_KIND_TS, None));
+        s.handle(commit());
+
+        // Evict the content value behind the store's back (the
+        // structure-survives-eviction property's wire face).
+        let thread_dir = std::fs::read_dir(dir.path().join("threads"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let resources_path = thread_dir.join("resources.jsonl");
+        let all = std::fs::read_to_string(&resources_path).unwrap();
+        let kept: Vec<&str> = all.lines().filter(|l| !l.contains("text/plain")).collect();
+        std::fs::write(&resources_path, kept.join("\n") + "\n").unwrap();
+
+        let frames = s.handle(IncomingFrame {
+            method: Some(Method::MsgThreadsLogGet(MsgThreadsLogGet {
+                thread: Some(genesis),
+            })),
+        });
+        match first(&frames) {
+            Frame::MsgThreadsLogPush(l) => {
+                let entry = &l.entries[0];
+                let content = entry.content.as_ref().unwrap();
+                assert_eq!(
+                    content.r#ref.as_ref().unwrap().digest,
+                    resource_digest("text/plain", b"gone").to_vec(),
+                    "the digest survives the eviction"
+                );
+                assert!(
+                    content.value.is_none(),
+                    "the absent value IS the stated miss"
+                );
+                // The roster never shrinks; the ts claim keeps its value.
+                assert_eq!(entry.claims.len(), 1);
+                assert!(entry.claims[0].value.is_some());
+            }
+            other => panic!("expected msg_threads_log_push, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resource_get_resolves_held_values_and_misses_echo_the_ref() {
+        let (mut s, _dir) = temp_session();
+        s.handle(fresh_cursor_set());
+        s.handle(content_set("text/plain", "needle"));
+        s.handle(commit());
+        let digest = resource_digest("text/plain", b"needle").to_vec();
+
+        let hit = s.handle(IncomingFrame {
+            method: Some(Method::ResourceGet(ResourceGet {
+                r#ref: Some(ResourceRef {
+                    algo: DIGEST_ALGO.to_owned(),
+                    digest: digest.clone(),
+                }),
+            })),
+        });
+        match first(&hit) {
+            Frame::ResourcePush(p) => {
+                assert_eq!(p.r#ref.as_ref().unwrap().digest, digest, "ref echo");
+                assert_eq!(p.value.as_ref().unwrap().kind, "text/plain");
+                assert_eq!(p.value.as_ref().unwrap().data, b"needle");
+            }
+            other => panic!("expected resource_push, got {other:?}"),
+        }
+
+        let miss = s.handle(IncomingFrame {
+            method: Some(Method::ResourceGet(ResourceGet {
+                r#ref: Some(ResourceRef {
+                    algo: DIGEST_ALGO.to_owned(),
+                    digest: vec![7u8; DIGEST_LEN],
+                }),
+            })),
+        });
+        match first(&miss) {
+            Frame::ResourcePush(p) => {
+                assert_eq!(
+                    p.r#ref.as_ref().unwrap().digest,
+                    vec![7u8; DIGEST_LEN],
+                    "the miss echoes the ref"
+                );
+                assert!(p.value.is_none(), "the absent value = the stated miss");
+            }
+            other => panic!("expected resource_push, got {other:?}"),
+        }
+
+        expect_error(
+            &s.handle(IncomingFrame {
+                method: Some(Method::ResourceGet(ResourceGet { r#ref: None })),
+            }),
+            "malformed_frame",
+        );
     }
 
     #[test]
@@ -857,8 +936,8 @@ mod tests {
             })),
         });
         match first(&frames) {
-            Frame::MsgThreadsLog(l) => assert!(l.entries.is_empty()),
-            other => panic!("expected msg_threads_log, got {other:?}"),
+            Frame::MsgThreadsLogPush(l) => assert!(l.entries.is_empty()),
+            other => panic!("expected msg_threads_log_push, got {other:?}"),
         }
     }
 
@@ -892,7 +971,7 @@ mod tests {
         s.handle(content_set("text/plain", "second"));
         let frames = s.handle(commit());
         let second = match first(&frames) {
-            Frame::MsgAdded(a) => a.entry.as_ref().unwrap().msg.as_ref().unwrap().clone(),
+            Frame::MsgAdded(a) => a.entry.as_ref().unwrap().clone(),
             other => panic!("expected msg_added, got {other:?}"),
         };
         assert_eq!(second.prev[0].digest, first_digest);
@@ -901,8 +980,8 @@ mod tests {
             method: Some(Method::MsgThreadsGet(MsgThreadsGet {})),
         });
         match first(&frames) {
-            Frame::MsgThreads(t) => assert_eq!(t.threads.len(), 1),
-            other => panic!("expected msg_threads, got {other:?}"),
+            Frame::MsgThreadsPush(t) => assert_eq!(t.threads.len(), 1),
+            other => panic!("expected msg_threads_push, got {other:?}"),
         }
     }
 }

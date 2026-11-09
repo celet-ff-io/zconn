@@ -71,14 +71,14 @@ fn handshake_frame() -> Vec<u8> {
 }
 
 /// The prost length-delimited body frame the fake cores emit: a valid
-/// `OutgoingFrame` (an empty position_set — the grammar-B answer a
+/// `OutgoingFrame` (an empty msg_cursor_push — the grammar-B answer a
 /// canned core can speak). Since v3 the two directions carry
 /// DIFFERENT types, so a byte-for-byte `cat` echo no longer yields a
 /// decodable answer; the canned frames replace it.
 fn canned_outgoing_frame() -> Vec<u8> {
-    use zconned_stdio_types::{OutgoingFrame, outgoing_frame::Frame, PositionSet};
+    use zconned_stdio_types::{MsgCursorPush, OutgoingFrame, outgoing_frame::Frame};
     let frame = OutgoingFrame {
-        frame: Some(Frame::PositionSet(PositionSet { refs: vec![] })),
+        frame: Some(Frame::MsgCursorPush(MsgCursorPush { refs: vec![] })),
     };
     let mut buf = Vec::with_capacity(8);
     frame
@@ -90,9 +90,9 @@ fn canned_outgoing_frame() -> Vec<u8> {
 /// The JSON line the client receives for the canned outgoing frame
 /// (derived by serializing the same type — no hand-counted bytes).
 fn canned_outgoing_json() -> String {
-    use zconned_stdio_types::{OutgoingFrame, outgoing_frame::Frame, PositionSet};
+    use zconned_stdio_types::{MsgCursorPush, OutgoingFrame, outgoing_frame::Frame};
     let frame = OutgoingFrame {
-        frame: Some(Frame::PositionSet(PositionSet { refs: vec![] })),
+        frame: Some(Frame::MsgCursorPush(MsgCursorPush { refs: vec![] })),
     };
     let mut line = serde_json::to_string(&frame).unwrap();
     line.push('\n');

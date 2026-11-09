@@ -282,6 +282,21 @@ impl Store {
         Ok(out)
     }
 
+    /// Point lookup of one resource by its binary digest. Content
+    /// addressing makes duplicates identical, so the first match is
+    /// THE resource.
+    pub fn find_resource(&self, digest: &[u8]) -> Result<Option<ResourceRow>> {
+        let hex = to_lower_hex(digest);
+        for thread in self.threads()? {
+            for row in self.resources(&thread)? {
+                if row.digest == hex {
+                    return Ok(Some(row));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// Every row's message digest -> its thread; keyed by binary
     /// digest; built by a full scan.
     pub fn digest_index(&self) -> Result<HashMap<Vec<u8>, ThreadId>> {
