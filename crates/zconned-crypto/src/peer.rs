@@ -17,7 +17,7 @@ pub const STATIC_DH_PUB_LEN: usize = 32;
 ///
 /// The JSON form lives in the `zconned-codec` crate.
 #[derive(Debug, Clone, PartialEq, Eq, Getters, TypedBuilder)]
-pub struct PublicKeySet {
+pub struct MailboxPublicSet {
     /// The signing public half.
     #[getset(get = "pub")]
     sign: [u8; SIGN_PUB_LEN],
@@ -27,7 +27,7 @@ pub struct PublicKeySet {
     static_dh: [u8; STATIC_DH_PUB_LEN],
 }
 
-impl PublicKeySet {
+impl MailboxPublicSet {
     /// The fingerprint: SHA3-256 over the signing public key —
     /// the addressing anchor.
     /// @see [`crate::fingerprint::Fingerprint`].
@@ -43,7 +43,7 @@ mod tests {
 
     #[test]
     fn accessors_borrow_raw_bytes() {
-        let keys = PublicKeySet::builder()
+        let keys = MailboxPublicSet::builder()
             .sign([7u8; 32])
             .static_dh([9u8; 32])
             .build();
@@ -53,7 +53,7 @@ mod tests {
 
     #[test]
     fn fingerprint_is_hash_of_sign_half() {
-        let keys = PublicKeySet::builder()
+        let keys = MailboxPublicSet::builder()
             .sign([3u8; 32])
             .static_dh([4u8; 32])
             .build();

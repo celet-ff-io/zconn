@@ -6,5 +6,5 @@ mod peer;
 mod transcript;
 
 pub use error::CodecError;
-pub use peer::PublicKeySetJson;
+pub use peer::MailboxPublicSetJson;
 pub use transcript::{ResourceRow, Row, RowClaim, RowMeta, RowMsg, RowMsgRef, RowResourceRef};

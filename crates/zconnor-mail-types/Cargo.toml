@@ -1,0 +1,26 @@
+[package]
+name = "zconnor-mail-types"
+version = "0.1.0-alpha"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+prost.workspace = true
+tonic = { version = "0.14.2", default-features = false, features = [
+    "codegen",
+    "transport",
+] }
+tonic-prost = "0.14.2"
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[build-dependencies]
+prost-build = "0.14.4"
+tonic-prost-build = "0.14.2"

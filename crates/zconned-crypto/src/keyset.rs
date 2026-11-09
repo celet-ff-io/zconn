@@ -6,7 +6,7 @@ use zeroize::Zeroize as _;
 use crate::error::IdentityError;
 use crate::fingerprint;
 use crate::kdf;
-use crate::peer::{PublicKeySet, STATIC_DH_PUB_LEN};
+use crate::peer::{MailboxPublicSet, STATIC_DH_PUB_LEN};
 
 /// Byte length of the master key: the size the derivation
 /// algorithm requires.
@@ -127,8 +127,8 @@ impl KeySet {
 
     /// The public counterpart of this key set: both long-term
     /// public halves.
-    pub fn public(&self) -> PublicKeySet {
-        PublicKeySet::builder()
+    pub fn public(&self) -> MailboxPublicSet {
+        MailboxPublicSet::builder()
             .sign(*self.derived.sign.verifying_key().as_bytes())
             .static_dh(self.derived.static_dh_public_bytes())
             .build()

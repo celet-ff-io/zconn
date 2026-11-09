@@ -1,0 +1,17 @@
+// Prekey wire shapes; key roles: server-or/coarse.md.
+syntax = "proto3";
+package zconn.zconned.mail;
+
+// The medium tier: standing, single-slot, identity-signed. The
+// epoch advances at every flip; the mail's key_version echoes it.
+message Spk {
+  bytes key = 1;
+  bytes sig = 2;  // Sign(sign_priv, canonical(key, ver))
+  uint64 ver = 3;  // the owner's monotone epoch
+}
+
+// One pool slot; the id locates the private key receiver-side.
+message Opk {
+  uint32 id = 1;
+  bytes key = 2;
+}

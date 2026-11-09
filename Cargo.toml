@@ -19,6 +19,7 @@ zconned-material = { path = "crates/zconned-material" }
 zconned-io-link = { path = "crates/zconned-io-link" }
 zconned-crypto = { path = "crates/zconned-crypto" }
 zconned-codec = { path = "crates/zconned-codec" }
+zconnor-mail-types = { path = "crates/zconnor-mail-types" }
 
 ed25519-dalek = "3.0.0"
 x25519-dalek = { version = "3.0.0", features = ["static_secrets"] }

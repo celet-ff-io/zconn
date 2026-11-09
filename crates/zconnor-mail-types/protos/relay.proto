@@ -1,0 +1,71 @@
+// relay.proto — the Mailbox gRPC service face (package
+// zconn.zconned.relay). Contract text: protocol.md.
+syntax = "proto3";
+package zconn.zconned.relay;
+
+import "mail.proto";
+import "mail_spk_opk.proto";
+
+// Request references are fully qualified: a method name shadows a
+// same-named message inside the service scope.
+service Mailbox {
+  rpc VersionGet(zconn.zconned.relay.VersionGet) returns (VersionReply);
+  rpc ChallengeGet(zconn.zconned.relay.ChallengeGet) returns (Challenge);
+  rpc MailboxClaim(zconn.zconned.relay.MailboxClaim) returns (ClaimReply);
+  rpc Register(zconn.zconned.relay.Register) returns (RegisterReply);
+  rpc SpkSet(zconn.zconned.relay.SpkSet) returns (SpkSetReply);
+  rpc OpkSet(zconn.zconned.relay.OpkSet) returns (OpkSetReply);
+  rpc BundleGet(zconn.zconned.relay.BundleGet) returns (Bundle);
+  rpc TranscriptPlane(stream zconn.zconned.mail.Mail) returns (stream PlaneFrame);
+  rpc ResourcesPlane(stream zconn.zconned.mail.Mail) returns (stream PlaneFrame);
+  rpc MailReceived(zconn.zconned.relay.MailReceived) returns (ReceivedReport);
+  rpc MailCursorsGet(zconn.zconned.relay.MailCursorsGet) returns (MailCursors);
+}
+
+message VersionGet {}
+message VersionReply { uint32 version = 1; }  // the link's own version clock
+message ChallengeGet {}
+message Challenge { bytes nonce = 1; }
+
+message MailboxClaim {
+  bytes anchor = 1;     // H(sign_pub)
+  bytes claim_sig = 2;  // Ed25519 over the nonce
+}
+message ClaimReply {}
+
+message Register { zconn.zconned.mail.MailboxPublicSet mailbox = 1; }
+message RegisterReply {}
+
+message SpkSet { zconn.zconned.mail.Spk spk = 1; }
+message SpkSetReply {}
+message OpkSet { repeated zconn.zconned.mail.Opk opks = 1; }
+message OpkSetReply {}
+message BundleGet { bytes mailbox = 1; }
+message Bundle {
+  bytes mailbox = 1;
+  zconn.zconned.mail.Spk spk = 2;
+  zconn.zconned.mail.Opk opk = 3;
+  uint64 pool_remaining = 4;  // the replenish trigger reads this
+}
+
+message MailReceived {
+  bytes from_mailbox = 1;  // cumulative-prefix key half
+  uint64 up_to = 2;        // chain seq acked up to
+}
+message ReceivedReport {}
+
+message MailCursorsGet {}
+message MailCursors {}  // shape lands with the cursor-keeping code
+
+// The plane's downstream direction only; upstream stays bare Mail.
+message PlaneFrame {
+  oneof frame {
+    zconn.zconned.mail.Mail mail = 1;
+    Error error = 2;
+  }
+}
+
+message Error {
+  string code = 1;
+  string message = 2;
+}

@@ -9,17 +9,17 @@ use zconned_crypto::peer;
 /// (project bytes-in-JSON convention). Serialize it with serde_json
 /// directly; parse back with `serde_json::from_str` + `try_into`.
 ///
-/// @see [`peer::PublicKeySet`].
+/// @see [`peer::MailboxPublicSet`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PublicKeySetJson {
+pub struct MailboxPublicSetJson {
     /// Signing public key, standard base64.
     pub sign: String,
     /// Static DH public key, standard base64.
     pub static_dh: String,
 }
 
-impl From<peer::PublicKeySet> for PublicKeySetJson {
-    fn from(keys: peer::PublicKeySet) -> Self {
+impl From<peer::MailboxPublicSet> for MailboxPublicSetJson {
+    fn from(keys: peer::MailboxPublicSet) -> Self {
         Self {
             sign: B64.encode(keys.sign()),
             static_dh: B64.encode(keys.static_dh()),
@@ -27,14 +27,14 @@ impl From<peer::PublicKeySet> for PublicKeySetJson {
     }
 }
 
-impl TryFrom<PublicKeySetJson> for peer::PublicKeySet {
+impl TryFrom<MailboxPublicSetJson> for peer::MailboxPublicSet {
     type Error = CodecError;
 
     /// # Errors
     /// [`CodecError::Field`] on wrong key length;
     /// [`CodecError::Base64`] on malformed base64.
-    fn try_from(dto: PublicKeySetJson) -> Result<Self, Self::Error> {
-        Ok(peer::PublicKeySet::builder()
+    fn try_from(dto: MailboxPublicSetJson) -> Result<Self, Self::Error> {
+        Ok(peer::MailboxPublicSet::builder()
             .sign(decode_key::<{ peer::SIGN_PUB_LEN }>("sign", &dto.sign)?)
             .static_dh(decode_key::<{ peer::STATIC_DH_PUB_LEN }>(
                 "static_dh",
@@ -60,24 +60,25 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    fn sample_set() -> peer::PublicKeySet {
-        peer::PublicKeySet::builder()
+    fn sample_set() -> peer::MailboxPublicSet {
+        peer::MailboxPublicSet::builder()
             .sign([1u8; 32])
             .static_dh([2u8; 32])
             .build()
     }
 
     fn sample_json() -> String {
-        serde_json::to_string(&PublicKeySetJson::from(sample_set())).expect("to_json")
+        serde_json::to_string(&MailboxPublicSetJson::from(sample_set())).expect("to_json")
     }
 
     #[test]
     fn json_roundtrip_preserves_public_key_set() {
-        let back: peer::PublicKeySet = serde_json::from_str::<PublicKeySetJson>(&sample_json())
-            .expect("from_str")
-            .try_into()
-            .expect("try_into");
-        let expected = peer::PublicKeySet::builder()
+        let back: peer::MailboxPublicSet =
+            serde_json::from_str::<MailboxPublicSetJson>(&sample_json())
+                .expect("from_str")
+                .try_into()
+                .expect("try_into");
+        let expected = peer::MailboxPublicSet::builder()
             .sign([1u8; 32])
             .static_dh([2u8; 32])
             .build();
@@ -94,8 +95,8 @@ mod tests {
 
     #[test]
     fn wrong_length_key_errors() {
-        let dto = PublicKeySetJson::from(
-            peer::PublicKeySet::builder()
+        let dto = MailboxPublicSetJson::from(
+            peer::MailboxPublicSet::builder()
                 .sign([0u8; 32])
                 .static_dh([0u8; 32])
                 .build(),
@@ -103,8 +104,8 @@ mod tests {
         let mut dto = dto;
         dto.sign = B64.encode([0u8; 3]);
         let json = serde_json::to_string(&dto).expect("json");
-        let dto: PublicKeySetJson = serde_json::from_str(&json).expect("from_str");
-        match peer::PublicKeySet::try_from(dto) {
+        let dto: MailboxPublicSetJson = serde_json::from_str(&json).expect("from_str");
+        match peer::MailboxPublicSet::try_from(dto) {
             Err(CodecError::Field {
                 field: "sign",
                 expected: peer::SIGN_PUB_LEN,
@@ -116,27 +117,28 @@ mod tests {
 
     #[test]
     fn malformed_base64_errors() {
-        let mut dto = PublicKeySetJson::from(
-            peer::PublicKeySet::builder()
+        let mut dto = MailboxPublicSetJson::from(
+            peer::MailboxPublicSet::builder()
                 .sign([0u8; 32])
                 .static_dh([0u8; 32])
                 .build(),
         );
         dto.sign = "!!!not base64!!!".to_owned();
         assert!(matches!(
-            peer::PublicKeySet::try_from(dto),
+            peer::MailboxPublicSet::try_from(dto),
             Err(CodecError::Base64(_))
         ));
     }
 
     #[test]
     fn inverse_pair_is_static_dh() {
-        let keys = peer::PublicKeySet::builder()
+        let keys = peer::MailboxPublicSet::builder()
             .sign([7u8; 32])
             .static_dh([9u8; 32])
             .build();
-        let json = serde_json::to_string(&PublicKeySetJson::from(keys.clone())).expect("to_json");
-        let back: peer::PublicKeySet = serde_json::from_str::<PublicKeySetJson>(&json)
+        let json =
+            serde_json::to_string(&MailboxPublicSetJson::from(keys.clone())).expect("to_json");
+        let back: peer::MailboxPublicSet = serde_json::from_str::<MailboxPublicSetJson>(&json)
             .expect("from_str")
             .try_into()
             .expect("try_into");

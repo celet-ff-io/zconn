@@ -1,0 +1,69 @@
+// mail.proto — the sealed-mail noun family (package
+// zconn.zconned.mail). No service here; contract text: protocol.md.
+syntax = "proto3";
+package zconn.zconned.mail;
+
+// The identity-only, signed public face of a mailbox.
+message MailboxPublicSet {
+  uint32 ver = 1;
+  string sign_algo = 2;
+  bytes  sign_pub = 3;
+  string dh_algo = 4;
+  bytes  static_dh_pub = 5;
+  bytes  sig = 6;  // over canonical fields 1..5
+}
+
+// Which Double Ratchet message unseals a mail.
+message DrHeader {
+  bytes  ratchet_pub = 1;
+  uint64 chain_seq = 2;  // per-(from_mailbox, chain) linear number
+}
+
+// Sealed mail: the wire, the relay cache, and the outbox all hold
+// this form; only the receiver unseals.
+message Mail {
+  bytes  to_mailbox = 1;    // anchors; routing by mailbox id
+  bytes  from_mailbox = 2;
+  uint32 key_version = 3;
+  DrHeader dr_header = 4;
+  bytes  sig = 5;           // the outer anti-spoofing gate;
+                            // input = the mail's deterministic encoding with sig unset
+  bytes  ciphertext = 6;    // opaque to the relay
+  // Session-start mail only (see Establishment).
+  optional Establishment establishment = 7;
+  // key_version (field 3) = the SPK epoch the session's establishment used.
+}
+
+// The sender's establishment kit: everything the receiver needs to
+// reconstruct the session key before any decryption. Present only on
+// a session's first mail.
+message Establishment {
+  // The sender's own self-signed public face; the receiver checks
+  // H(sign_pub) == from_mailbox, then the set's inner sig.
+  zconn.zconned.mail.MailboxPublicSet mailbox = 1;
+  // The establishment ephemeral X25519 public half.
+  bytes eph_pub = 2;
+  // Which one-time prekey the establishment consumed; absent = the
+  // 3-term degraded establishment (pool exhausted). Same id space
+  // as Opk.id.
+  optional uint32 opk_id = 3;
+}
+
+// The complete other-side zconned record (a send-target set element).
+message Peer {
+  PeerAddress address = 1;
+  MailboxPublicSet mailbox = 2;
+  repeated Endpoint endpoints = 3;
+}
+
+// The peer's address: the hash of its sign pubkey.
+message PeerAddress {
+  string algo = 1;
+  bytes  digest = 2;
+}
+
+// A connection hint, not an identity.
+message Endpoint {
+  string ip = 1;
+  uint32 port = 2;
+}

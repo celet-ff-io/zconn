@@ -11,11 +11,11 @@ use std::collections::HashMap;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
+use crate::render::render_row;
+use zconned_codec::ResourceRow;
 use zconned_codec::Row;
 use zconned_crypto::DIGEST_ALGO;
 use zconned_material::{Msg, Resource, Value};
-use zconned_codec::ResourceRow;
-use crate::render::render_row;
 
 use crate::error::{Error, Result};
 
@@ -351,8 +351,8 @@ fn base64_encode(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::store::base64_decode;
     use super::*;
+    use crate::store::base64_decode;
     use prost::Message as _;
     use zconned_material::{Claim, MsgRef, ResourceRef};
 
@@ -623,7 +623,11 @@ mod tests {
         assert_eq!(threads, vec![t1.clone()]);
         let index = store.digest_index().unwrap();
         assert_eq!(
-            index.get(crate::store::hex_to_bytes(&row.meta.digest).unwrap().as_slice()),
+            index.get(
+                crate::store::hex_to_bytes(&row.meta.digest)
+                    .unwrap()
+                    .as_slice()
+            ),
             Some(&t1)
         );
     }
