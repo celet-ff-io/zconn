@@ -83,7 +83,10 @@ async fn spawn_core(
 
 async fn client(read: tokio::io::DuplexStream, write: tokio::io::DuplexStream) -> Client {
     Client {
-        link: ProtobufLink::new(BufReader::new(read), write),
+        link: ProtobufLink::builder()
+            .reader(BufReader::new(read))
+            .writer(write)
+            .build(),
     }
 }
 

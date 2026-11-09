@@ -2,6 +2,7 @@
 
 use core::fmt::{self, Display};
 
+use getset::Getters;
 use sha3::{Digest as _, Sha3_256};
 
 use crate::peer::SIGN_PUB_LEN;
@@ -17,20 +18,21 @@ type DigestBytes = [u8; DIGEST_LEN];
 
 /// SHA3-256 digest of a signing public key: the identity anchor
 /// for out-of-band comparison.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Fingerprint(DigestBytes);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Getters)]
+pub struct Fingerprint {
+    /// The raw digest bytes.
+    #[getset(get = "pub")]
+    digest: DigestBytes,
+}
 
 impl Fingerprint {
     /// Compute over a signing public key.
     pub fn of(sign_pub: &[u8; SIGN_PUB_LEN]) -> Self {
         let mut hasher = Sha3_256::new();
         hasher.update(sign_pub);
-        Self(hasher.finalize().into())
-    }
-
-    /// The raw digest bytes.
-    pub fn bytes(&self) -> &DigestBytes {
-        &self.0
+        Self {
+            digest: hasher.finalize().into(),
+        }
     }
 }
 
@@ -38,7 +40,7 @@ impl Display for Fingerprint {
     /// Ratified notation: `<DIGEST_ALGO>:<lowercase hex>`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{DIGEST_ALGO}:")?;
-        for b in &self.0 {
+        for b in &self.digest {
             write!(f, "{b:02x}")?;
         }
         Ok(())

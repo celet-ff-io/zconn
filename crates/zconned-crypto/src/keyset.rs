@@ -64,6 +64,17 @@ impl DerivedKeys {
     }
 }
 
+impl std::fmt::Debug for DerivedKeys {
+    /// The public halves only — the dalek secret types' own Debug
+    /// formatting would print private material.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DerivedKeys")
+            .field("sign_verifying", &self.sign.verifying_key())
+            .field("static_dh_public", &self.static_dh_public_bytes())
+            .finish()
+    }
+}
+
 impl Drop for KeySet {
     fn drop(&mut self) {
         self.master.zeroize();

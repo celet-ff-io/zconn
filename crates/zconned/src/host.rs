@@ -36,7 +36,7 @@ where
     let mut session =
         Session::open(store).map_err(|e| crate::error::Error::from(Box::new(StdioHostError::Session(e))))?;
 
-    let mut stdio_link = ProtobufLink::new(stdin, stdout);
+    let mut stdio_link = ProtobufLink::builder().reader(stdin).writer(stdout).build();
 
     // Handshake with user via stdio
     let Handshake {

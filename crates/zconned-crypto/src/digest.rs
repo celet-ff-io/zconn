@@ -23,6 +23,6 @@ mod tests {
     fn agrees_with_the_fingerprint_primitive() {
         let mut key = [0u8; SIGN_PUB_LEN];
         key[0] = 7;
-        assert_eq!(digest(&key), *Fingerprint::of(&key).bytes());
+        assert_eq!(digest(&key), *Fingerprint::of(&key).digest());
     }
 }

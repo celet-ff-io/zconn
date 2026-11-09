@@ -3,6 +3,7 @@ use prost::Message;
 use protobuf_varint_deframer::{Deframer, UNLIMITED_MAX_PAYLOAD_LENGTH};
 use tap::Pipe as _;
 use tokio::io::{AsyncBufRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
+use typed_builder::TypedBuilder;
 
 use crate::{ReadCodec, ReadLink, WriteCodec, WriteLink};
 
@@ -71,24 +72,22 @@ where
     }
 }
 
+#[derive(TypedBuilder)]
 pub struct LinkStruct<R, W> {
+    #[builder(
+        default = Deframer::builder()
+            .max_payload_length(UNLIMITED_MAX_PAYLOAD_LENGTH)
+            .build(),
+        setter(skip)
+    )]
     deframer: Deframer,
-    buf: BytesMut,
-    reader: R,
-    writer: W,
-}
 
-impl<R, W> LinkStruct<R, W> {
-    pub fn new(reader: R, writer: W) -> Self {
-        Self {
-            deframer: Deframer::builder()
-                .max_payload_length(UNLIMITED_MAX_PAYLOAD_LENGTH)
-                .build(),
-            buf: BytesMut::new(),
-            reader,
-            writer,
-        }
-    }
+    #[builder(default = BytesMut::new(), setter(skip))]
+    buf: BytesMut,
+
+    reader: R,
+
+    writer: W,
 }
 
 impl<R, W> ReadLink for LinkStruct<R, W>
@@ -152,7 +151,9 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zconned_stdio_types::{IncomingFrame, MsgDraftCommit, MsgThreadsGet, incoming_frame::Method};
+    use zconned_stdio_types::{
+        IncomingFrame, MsgDraftCommit, MsgThreadsGet, incoming_frame::Method,
+    };
 
     use super::LinkStruct;
 
@@ -173,7 +174,10 @@ mod tests {
         ]
         .concat();
         // `&[u8]` hands its whole content over in a single `read_buf`.
-        let mut link = LinkStruct::new(&data[..], tokio::io::sink());
+        let mut link = LinkStruct::builder()
+            .reader(&data[..])
+            .writer(tokio::io::sink())
+            .build();
 
         let first: IncomingFrame = link.read_frame().await.unwrap().unwrap();
         assert!(matches!(first.method, Some(Method::MsgThreadsGet(_))));

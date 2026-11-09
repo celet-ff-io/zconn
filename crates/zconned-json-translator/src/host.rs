@@ -25,12 +25,18 @@ where
     let mut core_process = spawn_core(zconned_bin)?;
     let mut core_stdin = take_stdio(core_process.stdin.take(), "stdin")?;
     let mut core_stdout = BufReader::new(take_stdio(core_process.stdout.take(), "stdout")?);
-    let mut core_link = ProtobufLink::new(&mut core_stdout, &mut core_stdin);
+    let mut core_link = ProtobufLink::builder()
+        .reader(&mut core_stdout)
+        .writer(&mut core_stdin)
+        .build();
 
     // Handshake with core: translator - hs -> core
     handshake_with_core(&mut core_link).await?;
 
-    let mut client_link = JsonlLink::new(&mut *client_in, &mut *client_out);
+    let mut client_link = JsonlLink::builder()
+        .reader(&mut *client_in)
+        .writer(&mut *client_out)
+        .build();
     // Handshake with client: client - hs -> translator
     handshake_with_client(&mut client_link).await?;
 
@@ -64,8 +70,14 @@ where
     C: AsyncBufRead + Unpin,
     S: AsyncWrite + Unpin,
 {
-    let mut from_client = JsonlLink::new(client_in, sink());
-    let mut to_core = ProtobufLink::new(empty(), &mut core_stdin);
+    let mut from_client = JsonlLink::builder()
+        .reader(client_in)
+        .writer(sink())
+        .build();
+    let mut to_core = ProtobufLink::builder()
+        .reader(empty())
+        .writer(&mut core_stdin)
+        .build();
     while let Some(frame) = from_client
         .read_frame::<IncomingFrame>()
         .await
@@ -88,8 +100,14 @@ where
     R: AsyncBufRead + Unpin,
     C: AsyncWrite + Unpin,
 {
-    let mut from_core = ProtobufLink::new(core_stdout, sink());
-    let mut to_client = JsonlLink::new(empty(), client_out);
+    let mut from_core = ProtobufLink::builder()
+        .reader(core_stdout)
+        .writer(sink())
+        .build();
+    let mut to_client = JsonlLink::builder()
+        .reader(empty())
+        .writer(client_out)
+        .build();
     while let Some(frame) = from_core
         .read_frame::<OutgoingFrame>()
         .await

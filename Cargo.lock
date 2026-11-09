@@ -2196,6 +2196,7 @@ dependencies = [
  "pretty_assertions",
  "sha3",
  "sha3-kmac",
+ "tap",
  "thiserror",
  "typed-builder",
  "x25519-dalek",
@@ -2207,6 +2208,7 @@ name = "zconned-io-link"
 version = "0.1.0-alpha"
 dependencies = [
  "bytes",
+ "getset",
  "pretty_assertions",
  "prost",
  "protobuf-varint-deframer",
@@ -2215,6 +2217,7 @@ dependencies = [
  "tap",
  "thiserror",
  "tokio",
+ "typed-builder",
  "zconned-stdio-types",
 ]
 

@@ -7,6 +7,7 @@
 use chacha20poly1305::ChaCha20Poly1305;
 use chacha20poly1305::aead::{Aead, KeyInit};
 use getset::Getters;
+use tap::Pipe as _;
 use typed_builder::TypedBuilder;
 
 use crate::kdf;
@@ -279,10 +280,11 @@ impl<S: SkippedKeyStore> Ratchet<S> {
         };
         let gap = to.saturating_sub(self.recv_next);
         if gap > self.max_skip {
-            return Err(RatchetError::SkippedLimitExceeded {
+            return RatchetError::SkippedLimitExceeded {
                 cap: self.max_skip,
                 gap,
-            });
+            }
+            .pipe(Err);
         }
         let mut ck = ck;
         for seq in self.recv_next..to {
@@ -350,14 +352,16 @@ impl<S: SkippedKeyStore> Ratchet<S> {
     pub fn from_bytes(bytes: &[u8], skipped: S) -> Result<Self, RatchetError> {
         let exp = 1 + 32 * 5 + 8 * 5 + 2;
         if bytes.len() != exp {
-            return Err(RatchetError::CorruptState {
+            return RatchetError::CorruptState {
                 reason: "length mismatch",
-            });
+            }
+            .pipe(Err);
         }
         if bytes[0] != STATE_FORMAT {
-            return Err(RatchetError::CorruptState {
+            return RatchetError::CorruptState {
                 reason: "unknown format byte",
-            });
+            }
+            .pipe(Err);
         }
         let mut at = 1;
         let take32 = |b: &[u8], at: &mut usize| {

@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use getset::{Getters, Setters};
 use prost::Message as _;
+use tap::Pipe as _;
 use typed_builder::TypedBuilder;
 use zconned_crypto as crypto;
 use zconnor_mail_types::mail;
@@ -140,7 +141,7 @@ pub struct MailKeyring {
 impl MailKeyring {
     /// This identity's addressing anchor (the fingerprint bytes).
     pub fn anchor(&self) -> [u8; crypto::DIGEST_LEN] {
-        *self.identity.fingerprint().bytes()
+        *self.identity.fingerprint().digest()
     }
 
     /// The public face the or's directory holds, self-signed.
@@ -343,7 +344,7 @@ impl MailKeyring {
                 // face's inner sig must both hold before any key
                 // work.
                 if fingerprint_of(set)? != from {
-                    return Err(MailError::UnknownSender);
+                    return MailError::UnknownSender.pipe(Err);
                 }
                 // The outer gate runs on EVERY mail, kit or not.
                 verify_mail_sig(m, set)?;
@@ -379,10 +380,11 @@ impl MailKeyring {
         match establishment {
             Some(est) => {
                 if m.key_version != self.spk.ver {
-                    return Err(MailError::StalePrekey {
+                    return MailError::StalePrekey {
                         epoch: m.key_version,
                         current: self.spk.ver,
-                    });
+                    }
+                    .pipe(Err);
                 }
                 let seed = self.establish_seed(m, &peer_set, &est)?;
                 let mut ratchet = Ratchet::init_receiver(
@@ -522,7 +524,7 @@ impl MailKeyring {
 fn fingerprint_of(set: &mail::MailboxPublicSet) -> Result<[u8; crypto::DIGEST_LEN], MailError> {
     let mut sign = [0u8; SIGN_PUB_LEN];
     sign.copy_from_slice(&set.sign_pub);
-    Ok(*Fingerprint::of(&sign).bytes())
+    Ok(*Fingerprint::of(&sign).digest())
 }
 
 fn verify_set_sig(set: &mail::MailboxPublicSet) -> Result<(), MailError> {

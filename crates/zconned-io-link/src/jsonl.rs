@@ -2,6 +2,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_jsonlines::{AsyncJsonLinesReader, AsyncJsonLinesWriter};
 use tap::Pipe as _;
 use tokio::io::{AsyncBufRead, AsyncWrite};
+use typed_builder::TypedBuilder;
 
 use crate::{ReadCodec, ReadLink, WriteCodec, WriteLink};
 
@@ -52,18 +53,13 @@ where
     }
 }
 
+#[derive(TypedBuilder)]
 pub struct LinkStruct<R, W> {
+    #[builder(setter(transform = |reader: R| reader.pipe(AsyncJsonLinesReader::new)))]
     reader: AsyncJsonLinesReader<R>,
-    writer: AsyncJsonLinesWriter<W>,
-}
 
-impl<R, W> LinkStruct<R, W> {
-    pub fn new(reader: R, writer: W) -> Self {
-        Self {
-            reader: reader.pipe(AsyncJsonLinesReader::new),
-            writer: writer.pipe(AsyncJsonLinesWriter::new),
-        }
-    }
+    #[builder(setter(transform = |writer: W| writer.pipe(AsyncJsonLinesWriter::new)))]
+    writer: AsyncJsonLinesWriter<W>,
 }
 
 impl<R, W> ReadLink for LinkStruct<R, W>
